@@ -17,7 +17,7 @@ INSTRUCTIONS = (
     "改动在下一个任务边界生效；要立刻停下某个实例，用 set_instance_running(false)。"
     "每日编排前先调用 get_briefing 拿到计划、当日状态和实例快照。"
     "任务失败两次就跳过并 file_issue，不要反复重试同一个任务。"
-    "「hold is active」表示人正在使用设备，所有写操作都会被拒绝，只能调用 release_device 或 emergency_stop；"
+    "「hold is active」表示人正在使用设备：所有写操作都会被拒绝，你只需结束本轮并等它过期；解除让位只能由人通过本机接口完成。"
     "「human approval required」表示该任务受保护，需要人在会话里批准后带上返回的 approval_token 重试。"
 )
 
@@ -37,7 +37,6 @@ TOOL_NAMES = (
     "run_task_now",
     "set_schedule_rule",
     "hold_device",
-    "release_device",
     "emergency_stop",
     "update_daily_state",
     "log_decision",
@@ -192,11 +191,6 @@ def create_mcp(service: AgentService) -> FastMCP:
     def hold_device(minutes: int = 120, reason: str = "") -> str:
         """让位：人要用设备时调用，期间所有写操作被拒绝，到点自动解除。"""
         return _dump(service.hold(minutes=minutes, reason=reason))
-
-    @mcp.tool()
-    def release_device() -> str:
-        """结束让位。"""
-        return _dump(service.release_hold())
 
     @mcp.tool()
     @_gate_errors

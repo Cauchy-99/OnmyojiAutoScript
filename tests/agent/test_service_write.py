@@ -267,6 +267,19 @@ def test_hold_still_allows_release_and_emergency_stop(tmp_path):
     assert result["hold"]["active"] is True
 
 
+def test_hold_still_allows_stopping_an_instance(tmp_path):
+    manager = FakeManager(names=("oas1",))
+    service = _service(tmp_path, manager)
+    service.hold(minutes=30)
+
+    result = asyncio.run(service.set_running("oas1", False))
+
+    assert result["ok"] is True
+    assert manager.script_process["oas1"].stopped == 1
+    with pytest.raises(HoldActive):
+        asyncio.run(service.set_running("oas1", True))
+
+
 def test_ungranted_approval_token_cannot_unlock_a_protected_write(tmp_path):
     service = _service(tmp_path)
     with pytest.raises(NeedsApproval) as info:

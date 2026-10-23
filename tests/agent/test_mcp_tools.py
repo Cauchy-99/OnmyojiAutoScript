@@ -17,7 +17,7 @@ def _mcp(tmp_path, manager=None):
 
 
 def test_tool_names_are_complete():
-    assert len(TOOL_NAMES) == 21
+    assert len(TOOL_NAMES) == 20
     assert "get_briefing" in TOOL_NAMES
     assert "file_issue" in TOOL_NAMES
 
@@ -167,3 +167,12 @@ def test_hold_rejection_is_structured(tmp_path):
     payload = json.loads(content[0].text)
     assert payload["ok"] is False
     assert payload["error"] == "HoldActive"
+
+
+def test_release_device_is_not_exposed_to_the_agent(tmp_path):
+    mcp, _manager = _mcp(tmp_path)
+
+    async def names():
+        return {tool.name for tool in await mcp.list_tools()}
+
+    assert "release_device" not in asyncio.run(names())

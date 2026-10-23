@@ -64,6 +64,8 @@ Copy-Item config/agent/daily_plan.example.yaml data/agent/daily_plan.yaml
 ## 5. 人在玩的时候
 
 - 聊天里说「让位」，agent 调 `hold_device`；
+- **agent 不能解除让位**：`release_device` 工具已移除，解除只能由人通过本机接口 `DELETE /api/agent/hold` 完成；
+- 注意：让位**不会**停下已经在跑的任务（它只拒绝写操作）；要立刻腾出设备，用 `emergency_stop`（或直接停掉对应实例）；
 - 或者在本机发一条 POST（只接受 JSON body，查询参数 `?minutes=` 不生效）：
 
   ```powershell

@@ -388,8 +388,9 @@ class AgentService:
         ).to_dict()
 
     async def set_running(self, name: str, running: bool) -> dict:
-        self._guard("instance")
         process = self._process(name)
+        if running:
+            self._guard("instance")
         if running:
             if self._state_name(process) != "RUNNING":
                 await process.start()
