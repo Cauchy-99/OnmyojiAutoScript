@@ -52,9 +52,10 @@ def classify_write(
         return ActionClass.REVERSIBLE
     if kind in _TASK_KINDS:
         if task is None:
-            return ActionClass.REVERSIBLE
-        protected_set = {convert_to_underscore(item) for item in protected}
-        if convert_to_underscore(task) in protected_set:
+            # 任务级写操作必须指明任务，缺失即拒绝（fail-closed）
+            raise ValueError(f"action kind `{kind}` requires a task")
+        protected_set = {convert_to_underscore(item).lower() for item in protected}
+        if convert_to_underscore(task).lower() in protected_set:
             return ActionClass.IRREVERSIBLE
         return ActionClass.REVERSIBLE
     raise ValueError(f"unknown action kind: {kind}")

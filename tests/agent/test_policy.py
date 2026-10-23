@@ -25,6 +25,16 @@ def test_instance_control_is_reversible():
     assert policy.classify_write("instance") == policy.ActionClass.REVERSIBLE
 
 
+def test_task_scoped_kind_requires_task():
+    for kind in ("task_enable", "task_args", "next_run", "run_now"):
+        with pytest.raises(ValueError):
+            policy.classify_write(kind)
+
+
+def test_uppercase_protected_task_name_is_still_protected():
+    assert policy.classify_write("task_enable", "MYSTERY_SHOP") == policy.ActionClass.IRREVERSIBLE
+
+
 def test_hold_activates_and_expires():
     now = datetime(2026, 10, 23, 12, 0, 0)
 
