@@ -46,13 +46,17 @@ _log_switch_lock = threading.Lock()#线程锁
 
 
 class Script:
-    def __init__(self, config_name: str ='oas') -> None:
+    def __init__(self, config_name: str = 'oas',
+                 cmd_queue=None, frame_queue=None) -> None:
         logger.hr('Start', level=0)
         self.server = None
         self.state_queue: Queue = None
         self._emulator_down = False
         self.gui_update_task: Callable = None  # 回调函数, gui进程注册当每次config更新任务的时候更新gui的信息
         self.config_name = config_name
+        self.cmd_queue = cmd_queue
+        self.frame_queue = frame_queue
+        self._in_agent_command = False
         # Skip first restart
         self.is_first_task = True
         # Failure count of tasks
@@ -316,6 +320,7 @@ class Script:
             #         exit(0)
 
             time.sleep(5)
+            self._drain_agent_commands()
 
             if self.config.should_reload():
                 return False
@@ -389,6 +394,7 @@ class Script:
         self.config.start_watching()
         while True:
             time.sleep(30)
+            self._drain_agent_commands()
 
             if self.config.should_reload():
                 logger.info(f"[Queue] Config changed, re-evaluating")
@@ -620,6 +626,91 @@ class Script:
             self.config.notifier.push(title=f'{I18n.trans_zh_cn(command)}{command}', content=f"<{self.config_name}> Exception occured")
             exit(1)
 
+    # ------------------------------ agent bridge ------------------------------
+    _FRAME_INTERVAL = 5.0
+    _FRAME_MAX_EDGE = 1280
+    _FRAME_QUALITY = 70
+
+    def _handle_agent_command(self, command: str) -> None:
+        """执行一条来自 agent 的命令，只允许白名单。"""
+        try:
+            if command == 'goto_main':
+                self.run('GotoMain')
+            elif command == 'restart_game':
+                self.config.task_call('Restart')
+            elif command == 'stop_game':
+                self.device.app_stop()
+            elif command == 'emulator_stop':
+                self.device.emulator_stop()
+                self._emulator_down = True
+            elif command == 'emulator_start':
+                from module.device.device import Device
+                self.device = Device(self.config)
+                self._emulator_down = False
+            else:
+                logger.warning(f'Agent: unknown command `{command}`')
+        except Exception as e:
+            logger.exception(f'Agent: command `{command}` failed: {e}')
+
+    def _drain_agent_commands(self) -> None:
+        """在任务边界消费命令队列；防止命令里再触发 drain 造成递归。"""
+        if self.cmd_queue is None or self._in_agent_command:
+            return
+        self._in_agent_command = True
+        try:
+            while True:
+                try:
+                    command = self.cmd_queue.get_nowait()
+                except Exception:
+                    return
+                logger.info(f'Agent: received command `{command}`')
+                self._handle_agent_command(command)
+        finally:
+            self._in_agent_command = False
+
+    def _publish_frame_once(self) -> None:
+        """把当前帧发布给父进程；只读 device.image，不触发截图。"""
+        if self.frame_queue is None:
+            return
+        device = self.__dict__.get('device')
+        if device is None:
+            return
+        image = getattr(device, 'image', None)
+        if image is None:
+            return
+        try:
+            import time
+            import cv2
+            height, width = image.shape[:2]
+            scale = min(1.0, self._FRAME_MAX_EDGE / max(height, width))
+            if scale < 1.0:
+                image = cv2.resize(image, (int(width * scale), int(height * scale)))
+            ok, buffer = cv2.imencode(
+                '.jpg', cv2.cvtColor(image, cv2.COLOR_RGB2BGR),
+                [int(cv2.IMWRITE_JPEG_QUALITY), int(self._FRAME_QUALITY)],
+            )
+            if not ok:
+                return
+            try:
+                self.frame_queue.get_nowait()
+            except Exception:
+                pass
+            self.frame_queue.put_nowait((buffer.tobytes(), time.time()))
+        except Exception as e:
+            logger.debug(f'Agent: publish frame failed: {e}')
+
+    def _start_frame_publisher(self) -> None:
+        if self.frame_queue is None:
+            return
+        import time
+
+        def run():
+            while True:
+                time.sleep(self._FRAME_INTERVAL)
+                self._publish_frame_once()
+
+        Thread(target=run, name='AgentFramePublisher', daemon=True).start()
+
     def loop(self):
         """
         Main loop of scheduler.
@@ -627,6 +718,7 @@ class Script:
         """
         with _log_switch_lock:
             logger.set_file_logger(self.config_name, do_cleanup=True)
+        self._start_frame_publisher()
         start_day = date.today()
         logger.info(f'Start scheduler loop: {self.config_name}')
         self.config.model.running_task = ''
@@ -643,6 +735,7 @@ class Script:
                 show_window_by_name(target_window_name)
                 
         while 1:
+            self._drain_agent_commands()
             if date.today() > start_day:
                 with _log_switch_lock:
                     logger.set_file_logger(self.config_name, do_cleanup=True)

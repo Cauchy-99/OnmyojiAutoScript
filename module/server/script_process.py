@@ -29,6 +29,8 @@ class ScriptProcess(ScriptWSManager):
         self.config_name = config_name  # config_name
         self.log_pipe_out, self.log_pipe_in = multiprocessing.Pipe(False)
         self.state_queue = multiprocessing.Queue()
+        self.cmd_queue = multiprocessing.Queue()
+        self.frame_queue = multiprocessing.Queue(maxsize=1)
         self.state: ScriptState = ScriptState.INACTIVE
         self._process = None
 
@@ -45,7 +47,9 @@ class ScriptProcess(ScriptWSManager):
             logger.warning(f'Script {self.config_name} is already running and first stop it')
             self.stop()
         self._process = multiprocessing.Process(target=func,
-                                                args=(self.config_name, self.state_queue, self.log_pipe_in,),
+                                                args=(self.config_name, self.state_queue,
+                                                      self.log_pipe_in, self.cmd_queue,
+                                                      self.frame_queue,),
                                                 name=self.config_name,
                                                 daemon=True
                                                 )
@@ -124,7 +128,8 @@ class ScriptProcess(ScriptWSManager):
             return
 
 
-def func(config: str, state_queue: multiprocessing.Queue, log_pipe_in) -> None:
+def func(config: str, state_queue: multiprocessing.Queue, log_pipe_in,
+         cmd_queue=None, frame_queue=None) -> None:
     def signal_handler(signum, frame):
         logger.info(f'Script {config} received signal {signum}, exiting gracefully')
         log_pipe_in.close()
@@ -151,7 +156,7 @@ def func(config: str, state_queue: multiprocessing.Queue, log_pipe_in) -> None:
         #     logger.info(f'Script {config} is running')
         #     state_queue.put({"state": ScriptState.RUNNING})
         from script import Script
-        script = Script(config_name=config)
+        script = Script(config_name=config, cmd_queue=cmd_queue, frame_queue=frame_queue)
         script.state_queue = state_queue
         script.loop()
     except SystemExit as e:
