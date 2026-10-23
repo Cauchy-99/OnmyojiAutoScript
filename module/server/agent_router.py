@@ -81,7 +81,10 @@ def _handle(fn):
         except HTTPException:
             raise
         except Exception as error:  # noqa: BLE001
-            raise _translate(error) from error
+            translation = _translate(error)
+            if translation.status_code >= 500:
+                logger.exception('agent API internal error')
+            raise translation from error
 
     return wrapper
 
@@ -97,7 +100,6 @@ def _translate(error: Exception) -> HTTPException:
         return HTTPException(status_code=403, detail={"error": "needs_approval", **error.detail})
     if isinstance(error, (ValueError, KeyError, TypeError)):
         return HTTPException(status_code=400, detail=str(error))
-    logger.exception(f'agent API internal error: {error}')
     return HTTPException(status_code=500, detail='internal error')
 
 

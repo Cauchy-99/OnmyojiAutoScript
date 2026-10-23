@@ -84,6 +84,7 @@ def test_install_agent_leaves_other_paths_alone(tmp_path):
     client = TestClient(app)
 
     assert client.get("/api/agent/instances").status_code == 403
+    assert client.get("/api/agentfoo").status_code == 404
     assert client.get("/home_menu").status_code == 404
 
 

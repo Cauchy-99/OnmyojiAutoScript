@@ -86,6 +86,8 @@ async def on_startup():
     """
     global _frame_collector
     logger.info('OAS web service startup done')
+    if _frame_collector is not None:
+        _frame_collector.stop()
     _frame_collector = FrameCollector(mm, agent_service.frame_store)
     _frame_collector.start()
     if app.state.script_instances:
@@ -94,10 +96,13 @@ async def on_startup():
 
 async def on_shutdown():
     global _frame_collector
-    logger.info('OAS web service shutdown done')
     if _frame_collector is not None:
-        _frame_collector.stop()
+        try:
+            _frame_collector.stop()
+        except Exception as error:
+            logger.exception(f'agent frame collector stop failed: {error}')
         _frame_collector = None
+    logger.info('OAS web service shutdown done')
 
 
 @app.exception_handler(Exception)
