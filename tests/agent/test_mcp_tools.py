@@ -98,14 +98,32 @@ def test_tool_error_surfaces_not_swallowed(tmp_path):
         raise AssertionError("expected a tool error")
 
 
-def test_run_task_now_accepts_an_approval_token(tmp_path):
-    mcp, _manager = _mcp(tmp_path)
+def test_run_task_now_forwards_the_approval_token(tmp_path):
+    from module.server.agent.logtail import LogTailer
+    from module.server.agent.memory import AgentMemory
+    from module.server.agent.service import AgentService
+    from module.server.mcp_server import create_mcp
+    from tests.agent.fakes import FakeManager
+
+    manager = FakeManager()
+    service = AgentService(
+        manager, memory=AgentMemory(root=tmp_path), tailer=LogTailer(root=tmp_path)
+    )
+    captured = {}
+
+    async def spy(instance, task, position="front", approval_token=None):
+        captured["approval_token"] = approval_token
+        return {"ok": True}
+
+    service.run_now = spy
+    mcp = create_mcp(service)
 
     async def call():
         return await mcp.call_tool(
             "run_task_now",
-            {"instance": "oas1", "task": "Exploration", "approval_token": "tok-123"},
+            {"instance": "oas1", "task": "MysteryShop", "approval_token": "tok-123"},
         )
 
     content, _ = asyncio.run(call())
+    assert captured["approval_token"] == "tok-123"
     assert '"ok": true' in content[0].text.lower()

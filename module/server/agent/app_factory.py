@@ -61,11 +61,13 @@ def install_agent(
     if mount_mcp:
         try:
             from module.server.mcp_server import create_mcp
-
-            mcp = create_mcp(service)
-        except ImportError as error:
+        except ModuleNotFoundError as error:
+            if not (error.name or "").split(".")[0] == "mcp":
+                raise
             logger.warning(f'agent MCP endpoint disabled: {error}')
         else:
+            mcp = create_mcp(service)
+            http_app = mcp.streamable_http_app()
+            app.mount("/mcp", http_app)
             app.state.agent_mcp = mcp
-            app.mount("/mcp", mcp.streamable_http_app())
     return service

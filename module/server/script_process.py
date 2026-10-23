@@ -38,6 +38,15 @@ class ScriptProcess(ScriptWSManager):
         """父进程视角：子进程是否还活着。"""
         return bool(self._process is not None and self._process.is_alive())
 
+    def _drain_queues(self) -> None:
+        """丢弃上一次运行遗留的命令与帧，避免新子进程消费到旧指令。"""
+        for queue in (self.cmd_queue, self.frame_queue):
+            while True:
+                try:
+                    queue.get_nowait()
+                except Exception:
+                    break
+
     async def start(self):
         self.state = ScriptState.RUNNING
         await self.broadcast_state({"state": self.state})
@@ -45,7 +54,8 @@ class ScriptProcess(ScriptWSManager):
             logger.warning(f'Script {self.config_name} is initialized')
         if self._process and self._process.is_alive():
             logger.warning(f'Script {self.config_name} is already running and first stop it')
-            self.stop()
+            await self.stop()
+        self._drain_queues()
         self._process = multiprocessing.Process(target=func,
                                                 args=(self.config_name, self.state_queue,
                                                       self.log_pipe_in, self.cmd_queue,

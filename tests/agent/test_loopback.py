@@ -110,7 +110,10 @@ def test_install_agent_survives_missing_mcp(tmp_path, monkeypatch):
     from module.server.agent.service import AgentService
     from tests.agent.fakes import FakeManager
 
-    monkeypatch.setitem(sys.modules, "module.server.mcp_server", None)
+    # 模拟未安装 mcp：让 mcp 包不可见，并清掉已缓存的模块，确保重新导入 mcp_server 时才失败。
+    monkeypatch.setitem(sys.modules, "mcp", None)
+    for name in ("module.server.mcp_server", "mcp.server.fastmcp", "mcp.server"):
+        monkeypatch.delitem(sys.modules, name, raising=False)
 
     service = AgentService(
         FakeManager(), memory=AgentMemory(root=tmp_path), tailer=LogTailer(root=tmp_path)
@@ -119,6 +122,10 @@ def test_install_agent_survives_missing_mcp(tmp_path, monkeypatch):
 
     returned = install_agent(app, service=service, mount_mcp=True)
 
+    from fastapi.testclient import TestClient
+
+    client = TestClient(app)
+    assert client.get("/api/agent/instances").status_code == 403  # guard still active, router present
     assert returned is service
     assert getattr(app.state, "agent_mcp", None) is None
     assert not any(getattr(route, "path", "").startswith("/mcp") for route in app.routes)
