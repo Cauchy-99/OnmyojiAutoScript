@@ -3204,6 +3204,8 @@ Expected: FAIL，`TypeError: __init__() got an unexpected keyword argument 'cmd_
         return bool(self._process is not None and self._process.is_alive())
 ```
 
+注意：`is_alive()` 已在 Task 5 的修复里提前加进 `ScriptProcess`（服务层 `list_instances()` 依赖它）。执行到这一步时先确认它已存在，**不要重复定义**。
+
 `start()` 里的 `multiprocessing.Process(...)` 调用改为传队列：
 
 ```python
