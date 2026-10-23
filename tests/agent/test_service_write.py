@@ -253,3 +253,43 @@ def test_emergency_stop_closes_the_gate_before_stopping(tmp_path):
     assert result["ok"] is False
     assert result["failed"] == ["oas1"]
     assert result["hold"]["active"] is True
+
+
+class GateProbeProcess(FakeProcess):
+    def __init__(self, name, probe):
+        super().__init__(name)
+        self._probe = probe
+        self.hold_during_stop = None
+
+    async def stop(self):
+        self.hold_during_stop = self._probe()
+        self.stopped += 1
+
+
+class CancellingProcess(FakeProcess):
+    async def stop(self):
+        raise asyncio.CancelledError
+
+
+def test_emergency_stop_activates_the_gate_before_any_stop(tmp_path):
+    manager = FakeManager(names=("oas1",))
+    service = _service(tmp_path, manager)
+    probe = GateProbeProcess("oas1", lambda: service.briefing()["hold"]["active"])
+    manager.script_process["oas1"] = probe
+
+    result = asyncio.run(service.emergency_stop())
+
+    assert probe.hold_during_stop is True
+    assert result["stopped"] == ["oas1"]
+    assert result["hold"]["active"] is True
+
+
+def test_emergency_stop_keeps_the_gate_on_cancellation(tmp_path):
+    manager = FakeManager(names=("oas1",))
+    service = _service(tmp_path, manager)
+    manager.script_process["oas1"] = CancellingProcess("oas1")
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(service.emergency_stop())
+
+    assert service.briefing()["hold"]["active"] is True

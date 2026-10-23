@@ -385,6 +385,8 @@ class AgentService:
                 stopped.append(name)
             except Exception:
                 failed.append(name)
+        # 停完之后重开窗口：早开是为了 fail-safe，这里保证返回的窗口从此刻起算
+        hold = self._hold.activate(minutes=minutes, reason="emergency_stop")
         self.memory.append_journal(
             f"急停：停止 {', '.join(stopped) or '无实例'}，失败 {', '.join(failed) or '无'}，让位 {minutes} 分钟"
         )
