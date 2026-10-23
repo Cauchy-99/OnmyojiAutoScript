@@ -57,7 +57,7 @@ DSH (agent)  ── streamable-http ──▶  Web/API 进程 (uvicorn :22267)
 
 1. **`Device` 只在子进程。** 截图、点按、启停游戏都必须在子进程里做，否则会和正在跑的任务抢 ADB / DroidCast / scrcpy 通道。不使用 zerorpc：旧 Qt GUI 的子进程只跑 RPC 服务、不跑 `loop()`，而这里子进程在跑 `loop()`，跨线程调 `Device` 会污染 `click_record`/`stuck_record`/`screenshot_deque`，可能触发假卡死。
 2. **配置改动在任务边界生效。** 写 `config/<name>.json` 不会打断正在跑的任务（子进程下一个边界重读）。想「立刻」打断，只有 `ScriptProcess.stop()`（terminate，等价 GUI 点停止）。
-3. **状态写入没有跨进程锁。** `ConfigModel.__setattr__` 直接落盘，父子进程可能互相覆盖。能力层采用「读—改—立即写—回读校验」，冲突时重试一次并记录到 journal；长期正确性依赖改动本身很小、窗口很短。
+3. **单次读写有锁，读—改—写整段没有。** `read_file`/`write_file` 各自持 `FileLock(<file>.lock)` 并用 `atomic_write` 落盘（`module/config/utils.py:33-101`），所以单次操作不会写坏文件；但「读到旧值 → 改 → 写回」之间的窗口没有跨进程互斥，父子进程并发仍可能丢更新。能力层采用「读—改—立即写—回读校验」，不一致时重试一次并记录到 journal。
 
 ### 3.3 两条新通道（都不跨线程碰 Device）
 
