@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable
 
@@ -17,7 +17,7 @@ from module.server.agent.models import (
     Snapshot,
     WriteResult,
 )
-from module.server.agent.policy import HoldGate
+from module.server.agent.policy import ActionClass, HoldActive, HoldGate, NeedsApproval, classify_write
 
 
 class UnknownInstance(KeyError):
@@ -159,3 +159,262 @@ class AgentService:
             "hold": self._hold_dict(),
             "playbook": playbook,
         }
+
+    # --------------------------------------------------------- guard rails
+    def _guard(self, kind: str, task: str | None = None, approval_token: str | None = None) -> None:
+        hold = self._hold.state()
+        if hold.active and kind not in {"hold", "release_hold", "estop"}:
+            raise HoldActive("hold is active; writes are disabled", hold.to_dict())
+
+        protected = self.memory.plan().get("protected_tasks") or ()
+        if classify_write(kind, task, protected) is not ActionClass.IRREVERSIBLE:
+            return
+
+        if approval_token and self.memory.consume_approval(approval_token):
+            return
+
+        approval = self.memory.add_approval(
+            {"kind": kind, "task": task, "requested_at": self._now().strftime("%Y-%m-%dT%H:%M:%S")}
+        )
+        raise NeedsApproval(
+            f"{task} is protected; human approval required",
+            {"task": task, "kind": kind, "approval_token": approval["token"]},
+        )
+
+    def _write(
+        self,
+        name: str,
+        kind: str,
+        apply_fn: Callable[[Any], bool],
+        verify_fn: Callable[[Any], bool],
+        task: str | None = None,
+        approval_token: str | None = None,
+        effective: str = EFFECTIVE_NEXT_BOUNDARY,
+        detail: dict | None = None,
+    ) -> dict:
+        self._guard(kind, task, approval_token)
+        config = self._config(name)
+        if not apply_fn(config):
+            raise ValueError(f"apply failed: kind={kind} task={task}")
+
+        fresh = self._config(name)
+        if not verify_fn(fresh):
+            retry_config = self._config(name)
+            apply_fn(retry_config)
+            fresh = self._config(name)
+            if not verify_fn(fresh):
+                self.memory.append_journal(f"写入校验失败 kind={kind} task={task}")
+                raise ValueError(f"verify failed: kind={kind} task={task}")
+
+        payload = dict(detail or {})
+        payload.setdefault("instance", name)
+        if task:
+            payload.setdefault("task", task)
+        return WriteResult(
+            ok=True, applied_at=self._now(), effective=effective, detail=payload
+        ).to_dict()
+
+    @staticmethod
+    def _normalize_task(task: str) -> str:
+        from module.config.utils import convert_to_underscore
+
+        return convert_to_underscore(task)
+
+    def _require_task(self, config: Any, task: str) -> str:
+        key = self._normalize_task(task)
+        data = config.model.dict()
+        if key not in data or not isinstance(data[key], dict) or "scheduler" not in data[key]:
+            raise ValueError(f"unknown task: {task}")
+        return key
+
+    @staticmethod
+    def _parse_at(at: str) -> str:
+        try:
+            parsed = datetime.strptime(at, "%Y-%m-%d %H:%M:%S")
+        except ValueError as error:
+            raise ValueError("at must be 'YYYY-MM-DD HH:MM:SS'") from error
+        return parsed.strftime("%Y-%m-%d %H:%M:%S")
+
+    # --------------------------------------------------------------- write
+    def set_task_enabled(
+        self, name: str, task: str, enabled: bool, approval_token: str | None = None
+    ) -> dict:
+        key = self._normalize_task(task)
+
+        def apply(config):
+            self._require_task(config, key)
+            return config.script_set_arg(key, "scheduler", "enable", bool(enabled))
+
+        def verify(config):
+            return bool(config.model.dict()[key]["scheduler"]["enable"]) == bool(enabled)
+
+        return self._write(name, "task_enable", apply, verify, task=key,
+                           approval_token=approval_token)
+
+    def set_task_arg(
+        self,
+        name: str,
+        task: str,
+        group: str,
+        argument: str,
+        value: Any,
+        approval_token: str | None = None,
+    ) -> dict:
+        key = self._normalize_task(task)
+
+        def apply(config):
+            self._require_task(config, key)
+            return config.script_set_arg(key, group, argument, value)
+
+        def verify(config):
+            node = config.model.dict()[key].get(group) or {}
+            return node.get(argument) == value
+
+        return self._write(
+            name, "task_args", apply, verify, task=key, approval_token=approval_token,
+            detail={"group": group, "argument": argument, "value": value},
+        )
+
+    def set_next_run(
+        self, name: str, task: str, at: str, approval_token: str | None = None
+    ) -> dict:
+        key = self._normalize_task(task)
+        stamp = self._parse_at(at)
+
+        def apply(config):
+            self._require_task(config, key)
+            return config.script_set_arg(key, "scheduler", "next_run", stamp)
+
+        def verify(config):
+            return str(config.model.dict()[key]["scheduler"]["next_run"]) == stamp
+
+        return self._write(
+            name, "next_run", apply, verify, task=key, approval_token=approval_token,
+            detail={"next_run": stamp},
+        )
+
+    async def run_now(
+        self, name: str, task: str, position: str = "front", approval_token: str | None = None
+    ) -> dict:
+        if position not in {"front", "end"}:
+            raise ValueError("position must be 'front' or 'end'")
+        key = self._normalize_task(task)
+        config = self._config(name)
+        self._require_task(config, key)
+
+        now = self._now()
+        target = now if position == "front" else now + timedelta(minutes=5)
+        stamp = target.strftime("%Y-%m-%d %H:%M:%S")
+
+        def apply(cfg):
+            return cfg.script_set_arg(key, "scheduler", "next_run", stamp)
+
+        result = self._write(
+            name, "run_now", apply, lambda cfg: str(cfg.model.dict()[key]["scheduler"]["next_run"]) == stamp,
+            task=key, approval_token=approval_token, detail={"next_run": stamp, "position": position},
+        )
+
+        process = self._process(name)
+        if self._state_name(process) != "RUNNING":
+            await process.start()
+            result["detail"]["started"] = True
+        return result
+
+    def set_schedule_rule(self, name: str, rule: str) -> dict:
+        allowed = {"Filter", "FIFO", "Priority"}
+        if rule not in allowed:
+            raise ValueError(f"rule must be one of {sorted(allowed)}")
+
+        def apply(config):
+            return config.script_set_arg("script", "optimization", "schedule_rule", rule)
+
+        def verify(config):
+            value = config.model.dict()["script"]["optimization"]["schedule_rule"]
+            return getattr(value, "value", value) == rule
+
+        return self._write(name, "schedule_rule", apply, verify, detail={"rule": rule})
+
+    def send_command(self, name: str, command: str) -> dict:
+        self._guard("command")
+        self._process(name)
+        self.commander.send(name, command)
+        return WriteResult(
+            ok=True, applied_at=self._now(), effective=EFFECTIVE_NEXT_BOUNDARY,
+            detail={"instance": name, "command": command},
+        ).to_dict()
+
+    async def set_running(self, name: str, running: bool) -> dict:
+        self._guard("instance")
+        process = self._process(name)
+        if running:
+            if self._state_name(process) != "RUNNING":
+                await process.start()
+        else:
+            await process.stop()
+        return WriteResult(
+            ok=True, applied_at=self._now(), effective=EFFECTIVE_IMMEDIATE,
+            detail={"instance": name, "running": bool(running)},
+        ).to_dict()
+
+    async def emergency_stop(self, minutes: int = 120) -> dict:
+        self._guard("estop")
+        processes = getattr(self.manager, "script_process", {}) or {}
+        stopped = []
+        for name, process in processes.items():
+            try:
+                await process.stop()
+                stopped.append(name)
+            except Exception:
+                continue
+        hold = self._hold.activate(minutes=minutes, reason="emergency_stop")
+        self.memory.append_journal(f"急停：停止 {', '.join(stopped) or '无实例'}，让位 {minutes} 分钟")
+        return {"ok": True, "stopped": stopped, "hold": hold.to_dict()}
+
+    # ------------------------------------------------------- hold & memory
+    def hold(self, minutes: int = 120, reason: str = "") -> dict:
+        state = self._hold.activate(minutes=minutes, reason=reason)
+        self.memory.append_journal(f"让位 {minutes} 分钟：{reason or '未说明'}")
+        return {"ok": True, "hold": state.to_dict()}
+
+    def release_hold(self) -> dict:
+        state = self._hold.release()
+        self.memory.append_journal("结束让位")
+        return {"ok": True, "hold": state.to_dict()}
+
+    def update_daily_state(self, patch: dict) -> dict:
+        return self.memory.update_state(patch)
+
+    def journal(self, text: str) -> dict:
+        return {"ok": True, "path": self.memory.append_journal(text)}
+
+    def list_issues(self, status: str | None = None) -> list[dict]:
+        return self.memory.list_issues(status=status)
+
+    def file_issue(
+        self,
+        task: str,
+        symptom: str,
+        suggestion: str = "",
+        instance: str | None = None,
+        include_log: int = 80,
+    ) -> dict:
+        name = instance or next(iter(getattr(self.manager, "script_process", {}) or {}), None)
+        snapshot = {}
+        log_excerpt = ""
+        frame = None
+        if name:
+            try:
+                snapshot = self.snapshot(name)
+                log_excerpt = "\n".join(self.log(name, limit=include_log)["lines"])
+            except Exception:
+                pass
+            payload, _ = self.frame_store.latest(name)
+            frame = payload
+        return self.memory.file_issue(
+            task=task,
+            symptom=symptom,
+            suggestion=suggestion,
+            log_excerpt=log_excerpt,
+            snapshot=snapshot,
+            frame=frame,
+        )
