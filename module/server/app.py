@@ -17,6 +17,8 @@ from module.server.script_router import script_app
 from module.server.tool_router import tool_app
 from module.server.setting import State
 from module.server.main_manager import mm
+from module.server.agent.app_factory import install_agent
+from module.server.agent.bridge import FrameCollector
 from starlette.staticfiles import StaticFiles
 
 
@@ -44,6 +46,7 @@ app.add_middleware(
 app.include_router(home_app)
 app.include_router(script_app)
 app.include_router(tool_app)
+agent_service = install_agent(app, manager=mm, mount_mcp=False)
 
 annotator_static_dir = Path(__file__).resolve().parent / "web" / "annotator" / "static"
 
@@ -66,12 +69,18 @@ if annotator_static_dir.exists():
     app.mount("/tool/annotator/static", NoCacheStaticFiles(directory=str(annotator_static_dir)), name="annotator_static")
 
 
+_frame_collector: FrameCollector = None
+
+
 async def on_startup():
     """
     app.state 的生命周期在定义app的时候就有了
     :return:
     """
+    global _frame_collector
     logger.info('OAS web service startup done')
+    _frame_collector = FrameCollector(mm, agent_service.frame_store)
+    _frame_collector.start()
     if app.state.script_instances:
         await mm.restart_processes(app.state.script_instances)
 
