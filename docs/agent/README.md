@@ -56,6 +56,18 @@ cp config/agent/daily_plan.example.yaml data/agent/daily_plan.yaml
 - 提前结束让位：`Invoke-RestMethod -Method Delete -Uri http://127.0.0.1:22267/api/agent/hold`
 - 急停：`Invoke-RestMethod -Method Post -Uri http://127.0.0.1:22267/api/agent/emergency_stop`（停掉全部实例并进入让位）。
 
+## 5.1 批准受保护任务（一次性）
+
+`protected_tasks` 里的任务（默认 `MysteryShop` / `RichMan` / `TalismanPass`）被写入时，接口返回 403，`detail.approval_token` 里是待批令牌。**这个令牌在被批准前不可用**——agent 拿到它也不能自己用，这是防止弱模型自我放行的关键。
+
+批准没有工具入口，只能在本机手动执行：
+
+```powershell
+python -c "from module.server.agent.memory import AgentMemory; print(AgentMemory().grant_approval('<token>'))"
+```
+
+批准后把 token 交给 agent（或自己在请求里带 `approval_token`），它只能用一次。状态在 `data/agent/approvals.json`：`pending` 待批，`tokens` 已批未用。
+
 ## 6. 出问题看哪里
 
 - `data/agent/journal/<date>.md`：agent 的决策理由；
