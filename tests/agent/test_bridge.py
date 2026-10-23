@@ -1,5 +1,4 @@
 import queue
-import time
 
 import pytest
 
@@ -99,3 +98,55 @@ def test_collector_drains_a_backlog_and_keeps_newest():
 
     assert store.latest() == (b"frame-2", 2.0)
     assert process.frame_queue.empty()
+
+
+class StuckThread:
+    """一个永远存活、join 不返回的桩线程。"""
+
+    def __init__(self):
+        self.joins = 0
+
+    def is_alive(self):
+        return True
+
+    def join(self, timeout=None):
+        self.joins += 1
+
+
+class MutatingQueue:
+    """第一次取帧时增删实例表，模拟生产环境的并发改动。"""
+
+    def __init__(self, manager, name="oas2"):
+        self.manager = manager
+        self.name = name
+        self.calls = 0
+
+    def get_nowait(self):
+        if self.calls == 0:
+            self.manager.script_process[self.name] = object()
+        else:
+            self.manager.script_process.pop(self.name, None)
+        self.calls += 1
+        raise queue.Empty
+
+
+def test_stop_keeps_a_stuck_poller_and_start_does_not_double_it():
+    collector = FrameCollector(FakeManager(), FrameStore(), interval=0.01)
+    stuck = StuckThread()
+    collector._thread = stuck
+
+    collector.stop()
+    assert collector._thread is stuck
+
+    collector.start()
+    assert collector._thread is stuck
+
+
+def test_poll_once_survives_instance_map_mutation():
+    manager = FakeManager()
+    manager.script_process["oas1"].frame_queue = MutatingQueue(manager)
+    store = FrameStore()
+
+    FrameCollector(manager, store).poll_once()
+
+    assert store.latest() == (None, None)

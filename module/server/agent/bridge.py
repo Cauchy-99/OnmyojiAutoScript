@@ -80,12 +80,14 @@ class FrameCollector:
     def stop(self) -> None:
         self._stop.set()
         thread = self._thread
-        if thread is not None:
+        if thread is None:
+            return
+        if thread.is_alive():
             thread.join(timeout=2.0)
-            if thread.is_alive():
-                # 让 start() 看到旧线程仍在跑，避免出现两个 poller
-                return
-            self._thread = None
+        if thread.is_alive():
+            # 卡住的 poller 保留引用，让 start() 不会再造一个
+            return
+        self._thread = None
 
 
 class Commander:
