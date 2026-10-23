@@ -157,3 +157,24 @@ def test_set_task_arg_tolerates_pydantic_coercion(tmp_path):
 
     assert result["ok"] is True
     assert manager.config_cache("oas1").data["exploration"]["scheduler"]["enable"] is True
+
+
+def test_emergency_stop_survives_a_broken_plan(tmp_path):
+    (tmp_path / "daily_plan.yaml").write_text("wake: ['7:00']\n", encoding="utf-8")
+    manager = FakeManager(names=("oas1",))
+    service = _service(tmp_path, manager)
+
+    result = asyncio.run(service.emergency_stop())
+
+    assert result["stopped"] == ["oas1"]
+    assert result["hold"]["active"] is True
+
+
+def test_emergency_stop_rejects_non_positive_minutes(tmp_path):
+    manager = FakeManager(names=("oas1",))
+    service = _service(tmp_path, manager)
+
+    with pytest.raises(ValueError):
+        asyncio.run(service.emergency_stop(minutes=0))
+
+    assert manager.script_process["oas1"].stopped == 0

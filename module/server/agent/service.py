@@ -166,6 +166,10 @@ class AgentService:
         if hold.active and kind not in {"hold", "release_hold", "estop"}:
             raise HoldActive("hold is active; writes are disabled", hold.to_dict())
 
+        if kind in {"hold", "release_hold", "estop"}:
+            # 急停/让位不能被计划文件的语法错误挡住
+            return
+
         protected = self.memory.plan().get("protected_tasks") or ()
         if classify_write(kind, task, protected) is not ActionClass.IRREVERSIBLE:
             return
@@ -366,18 +370,23 @@ class AgentService:
         ).to_dict()
 
     async def emergency_stop(self, minutes: int = 120) -> dict:
+        if minutes <= 0:
+            raise ValueError("minutes must be positive")
         self._guard("estop")
         processes = getattr(self.manager, "script_process", {}) or {}
-        stopped = []
-        for name, process in processes.items():
+        stopped: list[str] = []
+        failed: list[str] = []
+        for name, process in list(processes.items()):
             try:
                 await process.stop()
                 stopped.append(name)
             except Exception:
-                continue
+                failed.append(name)
         hold = self._hold.activate(minutes=minutes, reason="emergency_stop")
-        self.memory.append_journal(f"急停：停止 {', '.join(stopped) or '无实例'}，让位 {minutes} 分钟")
-        return {"ok": True, "stopped": stopped, "hold": hold.to_dict()}
+        self.memory.append_journal(
+            f"急停：停止 {', '.join(stopped) or '无实例'}，失败 {', '.join(failed) or '无'}，让位 {minutes} 分钟"
+        )
+        return {"ok": not failed, "stopped": stopped, "failed": failed, "hold": hold.to_dict()}
 
     # ------------------------------------------------------- hold & memory
     def hold(self, minutes: int = 120, reason: str = "") -> dict:
