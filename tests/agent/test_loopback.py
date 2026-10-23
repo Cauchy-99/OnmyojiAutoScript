@@ -21,8 +21,11 @@ def _run(scope, inner_status=200):
     return sent[0]["status"]
 
 
-def _scope(path, host):
-    return {"type": "http", "method": "GET", "path": path, "headers": [], "client": (host, 1234)}
+def _scope(path, host, host_header="127.0.0.1:22267", origin=None):
+    headers = [(b"host", host_header.encode())]
+    if origin is not None:
+        headers.append((b"origin", origin.encode()))
+    return {"type": "http", "method": "GET", "path": path, "headers": headers, "client": (host, 1234)}
 
 
 def test_loopback_is_allowed():
@@ -35,6 +38,24 @@ def test_ipv6_loopback_is_allowed():
 
 def test_lan_client_is_rejected():
     assert _run(_scope("/api/agent/instances", "192.168.1.20")) == 403
+
+
+def test_dns_rebinding_host_is_rejected():
+    assert _run(_scope("/api/agent/instances", "127.0.0.1", host_header="rebind.example:22267")) == 403
+
+
+def test_foreign_origin_is_rejected():
+    assert _run(_scope("/api/agent/instances", "127.0.0.1", origin="https://evil.example")) == 403
+
+
+def test_loopback_origin_is_allowed():
+    assert _run(_scope("/api/agent/instances", "127.0.0.1", origin="http://127.0.0.1:22267")) == 200
+
+
+def test_missing_host_header_is_rejected():
+    scope = _scope("/api/agent/instances", "127.0.0.1")
+    scope["headers"] = []
+    assert _run(scope) == 403
 
 
 def test_mcp_path_is_protected():
@@ -63,7 +84,7 @@ def test_install_agent_registers_the_guard(tmp_path):
     client = TestClient(app)
 
     # TestClient's default client host is "testclient", which is not loopback.
-    assert client.get("/api/agent/instances").status_code == 403
+    assert client.get("/api/agent/instances", headers={"host": "127.0.0.1"}).status_code == 403
 
 
 def test_install_agent_leaves_other_paths_alone(tmp_path):
@@ -125,7 +146,7 @@ def test_install_agent_survives_missing_mcp(tmp_path, monkeypatch):
     from fastapi.testclient import TestClient
 
     client = TestClient(app)
-    assert client.get("/api/agent/instances").status_code == 403  # guard still active, router present
+    assert client.get("/api/agent/instances", headers={"host": "127.0.0.1"}).status_code == 403  # guard still active, router present
     assert returned is service
     assert getattr(app.state, "agent_mcp", None) is None
     assert not any(getattr(route, "path", "").startswith("/mcp") for route in app.routes)

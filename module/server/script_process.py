@@ -52,16 +52,22 @@ class ScriptProcess(ScriptWSManager):
             logger.warning(f'Script {self.config_name} is already running and first stop it')
             await self.stop()
         self._drain_queues()
+        process = multiprocessing.Process(target=func,
+                                          args=(self.config_name, self.state_queue,
+                                                self.log_pipe_in, self.cmd_queue,
+                                                self.frame_queue,),
+                                          name=self.config_name,
+                                          daemon=True
+                                          )
+        try:
+            process.start()
+        except Exception:
+            self.state = ScriptState.WARNING
+            await self.broadcast_state({"state": self.state})
+            raise
+        self._process = process
         self.state = ScriptState.RUNNING
         await self.broadcast_state({"state": self.state})
-        self._process = multiprocessing.Process(target=func,
-                                                args=(self.config_name, self.state_queue,
-                                                      self.log_pipe_in, self.cmd_queue,
-                                                      self.frame_queue,),
-                                                name=self.config_name,
-                                                daemon=True
-                                                )
-        self._process.start()
 
     async def stop(self):
         self.state = ScriptState.INACTIVE
@@ -176,6 +182,7 @@ def func(config: str, state_queue: multiprocessing.Queue, log_pipe_in,
     except Exception as e:
         logger.exception(f'Run script {config} error')
         logger.error(f'Error: {e}')
+        state_queue.put({"state": ScriptState.WARNING})
         raise
 
 

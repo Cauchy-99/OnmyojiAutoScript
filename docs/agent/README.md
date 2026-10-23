@@ -2,6 +2,13 @@
 
 ## 1. 启动 OAS 后端
 
+> **依赖**：`mcp` 入口需要 `requirements-in.txt` 里新的 web 栈（fastapi 0.116.1 / pydantic 2.11 / pywin32 310）。
+> `requirements.txt` 是 pip-compile 生成的锁文件，必须在 **Python 3.10** 环境重新生成并提交：
+> ```powershell
+> pip-compile --annotation-style=line --output-file=requirements.txt requirements-in.txt
+> ```
+> 不重新生成就安装，`/mcp` 会因为缺 `mcp` 而静默禁用（REST 仍可用）。
+
 ```bash
 python server.py --port 22267
 ```

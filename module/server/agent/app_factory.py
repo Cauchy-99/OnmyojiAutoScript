@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
@@ -12,6 +13,7 @@ from module.server.agent.service import AgentService
 from module.server.agent_router import create_agent_router
 
 LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost", "::ffff:127.0.0.1"}
+LOOPBACK_HOSTNAMES = {"127.0.0.1", "::1", "localhost"}
 PROTECTED_PREFIXES = ("/api/agent", "/mcp")
 
 
@@ -19,17 +21,48 @@ def _is_protected(path: str) -> bool:
     return any(path == prefix or path.startswith(prefix + "/") for prefix in PROTECTED_PREFIXES)
 
 
+def _hostname(value: str | None) -> str | None:
+    """把 Host / Origin 里的主机名取出来（去掉端口、方括号、scheme）。"""
+    if not value:
+        return None
+    text = value.strip()
+    if "://" in text:
+        text = urlsplit(text).hostname or ""
+    if text.startswith("["):
+        text = text[1:].split("]", 1)[0]
+    elif text.count(":") == 1:
+        text = text.split(":", 1)[0]
+    return text or None
+
+
+def _header(scope, name: bytes) -> str | None:
+    for key, value in scope.get("headers") or []:
+        if key.lower() == name:
+            return value.decode("latin-1")
+    return None
+
+
 class LoopbackOnlyMiddleware:
-    """纯 ASGI 中间件：非回环地址访问受保护前缀一律 403。"""
+    """纯 ASGI 中间件：受保护前缀必须同时满足回环对端、回环 Host、回环 Origin。"""
 
     def __init__(self, app: Any) -> None:
         self.app = app
 
+    def _allowed(self, scope) -> bool:
+        client = scope.get("client")
+        host = client[0] if client else None
+        if host not in LOOPBACK_HOSTS:
+            return False
+        if _hostname(_header(scope, b"host")) not in LOOPBACK_HOSTNAMES:
+            return False
+        origin = _header(scope, b"origin")
+        if origin is not None and _hostname(origin) not in LOOPBACK_HOSTNAMES:
+            return False
+        return True
+
     async def __call__(self, scope, receive, send):
         if scope.get("type") == "http" and _is_protected(str(scope.get("path", ""))):
-            client = scope.get("client")
-            host = client[0] if client else None
-            if host not in LOOPBACK_HOSTS:
+            if not self._allowed(scope):
                 response = JSONResponse(
                     {"error": "forbidden", "detail": "agent endpoints are loopback-only"},
                     status_code=403,
