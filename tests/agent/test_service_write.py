@@ -7,7 +7,7 @@ from module.server.agent.logtail import LogTailer
 from module.server.agent.memory import AgentMemory
 from module.server.agent.policy import HoldActive, NeedsApproval
 from module.server.agent.service import AgentService
-from tests.agent.fakes import FakeManager
+from tests.agent.fakes import FakeManager, FakeProcess
 
 FIXED_NOW = datetime(2026, 10, 23, 18, 15, 0)
 
@@ -163,6 +163,8 @@ def test_emergency_stop_survives_a_broken_plan(tmp_path):
     (tmp_path / "daily_plan.yaml").write_text("wake: ['7:00']\n", encoding="utf-8")
     manager = FakeManager(names=("oas1",))
     service = _service(tmp_path, manager)
+    with pytest.raises(ValueError):
+        service.memory.plan()
 
     result = asyncio.run(service.emergency_stop())
 
@@ -198,7 +200,8 @@ def test_emergency_stop_rejects_non_positive_minutes(tmp_path):
         pytest.param(lambda service: asyncio.run(service.set_running("oas2", True)), id="instance"),
     ],
 )
-def test_hold_blocks_every_write_kind(tmp_path, write):
+def test_hold_blocks_every_gated_write(tmp_path, write):
+    """hold 期间所有会碰配置/进程的写操作都必须被拒；update_daily_state/journal/file_issue 只写 data/agent，不在闸门内。"""
     manager = FakeManager(names=("oas1", "oas2"))
     service = _service(tmp_path, manager)
     service.hold(minutes=30, reason="playing")
@@ -232,3 +235,21 @@ def test_ungranted_approval_token_cannot_unlock_a_protected_write(tmp_path):
 
     with pytest.raises(NeedsApproval):
         service.set_task_enabled("oas1", "MysteryShop", True, approval_token=token)
+
+
+class ExplodingProcess(FakeProcess):
+    async def stop(self):
+        self.stopped += 1
+        raise RuntimeError("stop failed")
+
+
+def test_emergency_stop_closes_the_gate_before_stopping(tmp_path):
+    manager = FakeManager(names=("oas1",))
+    manager.script_process["oas1"] = ExplodingProcess("oas1")
+    service = _service(tmp_path, manager)
+
+    result = asyncio.run(service.emergency_stop())
+
+    assert result["ok"] is False
+    assert result["failed"] == ["oas1"]
+    assert result["hold"]["active"] is True

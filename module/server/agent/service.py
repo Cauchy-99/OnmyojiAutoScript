@@ -373,6 +373,9 @@ class AgentService:
         if minutes <= 0:
             raise ValueError("minutes must be positive")
         self._guard("estop")
+        # 先关闸门再停实例：即使某个 stop 卡住或被取消，也不会留下一个开着的闸门
+        hold = self._hold.activate(minutes=minutes, reason="emergency_stop")
+
         processes = getattr(self.manager, "script_process", {}) or {}
         stopped: list[str] = []
         failed: list[str] = []
@@ -382,7 +385,6 @@ class AgentService:
                 stopped.append(name)
             except Exception:
                 failed.append(name)
-        hold = self._hold.activate(minutes=minutes, reason="emergency_stop")
         self.memory.append_journal(
             f"急停：停止 {', '.join(stopped) or '无实例'}，失败 {', '.join(failed) or '无'}，让位 {minutes} 分钟"
         )
