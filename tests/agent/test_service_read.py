@@ -99,3 +99,16 @@ def test_screenshot_is_per_instance(tmp_path):
 
     assert service.screenshot("oas1")["available"] is True
     assert service.screenshot("oas2")["available"] is False
+
+
+def test_list_tasks_keeps_missing_intervals_null(tmp_path):
+    manager = FakeManager()
+    scheduler = manager.config_cache("oas1").data["exploration"]["scheduler"]
+    scheduler.pop("success_interval")
+    scheduler.pop("failure_interval")
+
+    exploration = next(
+        item for item in _service(tmp_path, manager).list_tasks("oas1") if item["task"] == "exploration"
+    )
+    assert exploration["success_interval"] is None
+    assert exploration["failure_interval"] is None

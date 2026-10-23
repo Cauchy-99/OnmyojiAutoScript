@@ -32,6 +32,10 @@ class ScriptProcess(ScriptWSManager):
         self.state: ScriptState = ScriptState.INACTIVE
         self._process = None
 
+    def is_alive(self) -> bool:
+        """父进程视角：子进程是否还活着。"""
+        return bool(self._process is not None and self._process.is_alive())
+
     async def start(self):
         self.state = ScriptState.RUNNING
         await self.broadcast_state({"state": self.state})

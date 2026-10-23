@@ -2,6 +2,7 @@
 """agent 能力层：REST 与 MCP 共用的业务函数。"""
 from __future__ import annotations
 
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
@@ -71,7 +72,7 @@ class AgentService:
     def list_instances(self) -> list[dict]:
         views = []
         processes = getattr(self.manager, "script_process", {}) or {}
-        for name, process in processes.items():
+        for name, process in list(processes.items()):
             running_task = ""
             try:
                 running_task = self._config(name).model.dict().get("running_task", "") or ""
@@ -121,8 +122,8 @@ class AgentService:
                     "enable": bool(scheduler.get("enable")),
                     "next_run": str(next_run) if next_run is not None else None,
                     "priority": scheduler.get("priority"),
-                    "success_interval": str(scheduler.get("success_interval")),
-                    "failure_interval": str(scheduler.get("failure_interval")),
+                    "success_interval": None if scheduler.get("success_interval") is None else str(scheduler.get("success_interval")),
+                    "failure_interval": None if scheduler.get("failure_interval") is None else str(scheduler.get("failure_interval")),
                 }
             )
         return results
@@ -137,7 +138,7 @@ class AgentService:
     def screenshot(self, name: str) -> dict:
         self._process(name)
         payload, ts = self.frame_store.latest(name)
-        age = self.frame_store.age(name)
+        age = None if ts is None else max(0.0, time.time() - ts)
         return {
             "available": payload is not None,
             "image": payload,
