@@ -1,5 +1,5 @@
 import asyncio
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 import pytest
 
@@ -293,3 +293,33 @@ def test_emergency_stop_keeps_the_gate_on_cancellation(tmp_path):
         asyncio.run(service.emergency_stop())
 
     assert service.briefing()["hold"]["active"] is True
+
+
+class MutableClock:
+    def __init__(self, start):
+        self.current = start
+
+    def __call__(self):
+        return self.current
+
+
+def test_emergency_stop_window_starts_after_the_stops(tmp_path):
+    clock = MutableClock(datetime(2026, 10, 23, 18, 15, 0))
+    manager = FakeManager(names=("oas1",))
+    service = AgentService(
+        manager,
+        memory=AgentMemory(root=tmp_path),
+        tailer=LogTailer(root=tmp_path),
+        now=clock,
+    )
+
+    class SlowStopProcess(FakeProcess):
+        async def stop(self):
+            clock.current = clock.current + timedelta(minutes=10)
+            self.stopped += 1
+
+    manager.script_process["oas1"] = SlowStopProcess("oas1")
+
+    result = asyncio.run(service.emergency_stop(minutes=30))
+
+    assert result["hold"]["until"] == "2026-10-23 18:55:00"
