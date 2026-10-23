@@ -122,7 +122,7 @@ data/agent/                     # 运行期状态（gitignore）
 | `POST /{name}/tasks/{task}/run_now` `{position}` | `run_task_now` | `front`=现在，`end`=now+5min；确保实例在跑 | 下一任务边界 |
 | `POST /{name}/schedule_rule` `{rule}` | `set_schedule_rule` | `Filter`/`FIFO`/`Priority` | 下一任务边界 |
 | `POST /api/agent/emergency_stop` | `emergency_stop` | 停所有实例 + 进 hold | 立即 |
-| `POST /api/agent/hold` `{minutes}` / `DELETE` | `hold_device` / `release_device` | 让位闸门 | 立即 |
+| `POST /api/agent/hold` `{minutes}` / `DELETE` | `hold_device`（MCP 不提供解除） | 让位闸门；解除只由人走 REST `DELETE` | 立即 |
 | `POST /api/agent/daily_state` `{patch}` | `update_daily_state` | 合并写 `state.json` | 立即 |
 | `POST /api/agent/journal` `{text}` | `log_decision` | 追加当日 journal | 立即 |
 | `POST /api/agent/issues` | `file_issue` | 落 issue（见 §6） | 立即 |
@@ -243,16 +243,24 @@ data/agent/issues/ISS-20261023-181500-orochi.jpg（若有帧）
 | 级别 | 例子 | 处理 |
 |---|---|---|
 | read | 所有只读工具 | 放行 |
-| reversible | 开关任务、改 next_run/参数、补跑、启停实例、设备命令 | 放行；写前写后各存一份快照进 journal，可回滚 |
+| reversible | 开关任务、改 next_run/参数、补跑、启停实例、设备命令 | 放行；写后回读校验，返回 `verified` 标记；**不承诺自动回滚**（见下方说明） |
 | irreversible | `protected_tasks` 里任务的开关与参数变更、任何急停之外的全局动作 | 拒绝，落 `approvals.json` 待人工批准；headless 下永不自动通过 |
+
+关于「回滚」：早期设计写的是「写前写后各存一份快照进 journal，可回滚」，实现里没有采用——OAS 的配置写是 pydantic 校验 + 覆盖保存，没有事务语义，硬做快照回滚会和子进程的并发写打架。现行约定是：写操作返回 `verified`（true/false/未验证的 shape 记为 false 并附 `detail`），校验不一致时 journal 记一笔并报错，把「是否回滚」留给人。
 
 `protected_tasks` 由 `daily_plan.yaml` 配置，默认 `[MysteryShop, RichMan, TalismanPass]`（涉及勾玉/付费资源）。
 
-被拒绝时返回的 `approval_token` **在人工批准前不可用**：`AgentMemory.add_approval()` 只把请求写进 `pending`，启用它需要 `grant_approval(token)`——批准会把该请求从 `pending` **移**到 `tokens`（只保留一次），所以 token 消费掉之后不能被重新批准复活。批准动作**不出现在任何 MCP 工具或 REST 端点里**——否则弱 agent 可以拿着自己触发的 token 自我批准，闸门形同虚设。
+被拒绝时返回的 `approval_token` **在人工批准前不可用**：`AgentMemory.add_approval()` 只把请求写进 `pending`，启用它需要 `grant_approval(token)`——批准会把请求（连同它要授权的 `kind`/`task`）从 `pending` **移**到 `tokens`，消费时校验动作一致，所以一个批准过的 token 只能授权它当时那个写操作，且只能用一次。批准动作**不出现在任何 MCP 工具或 REST 端点里**——否则弱 agent 可以拿着自己触发的 token 自我批准，闸门形同虚设。
 
 ### 7.3 让位（hold）
 
-所有写工具第一道闸门。三种触发：聊天里说、`POST /api/agent/hold?minutes=120`、浏览器书签（一条 GET 链接）。hold 期间：不允许任何写操作、不允许启实例；到点自动解除。`emergency_stop` 会同时进 hold。
+所有写工具第一道闸门。触发：聊天里说、或本机 `POST /api/agent/hold`（JSON body，`{"minutes":120,"reason":"..."}`）。hold 期间普通写与启实例一律拒绝，**但「停实例」和急停放行**（停是安全方向，否则人想玩却停不下来）。到点自动解除。
+
+解除让位**只能由人**通过本机 `DELETE /api/agent/hold` 完成；MCP 不提供 `release_device`，否则弱 agent 能自己解闸。另外 hold 只关闸门，**不会中断正在跑的任务**——要立刻把设备腾出来，用 `emergency_stop`（停全部实例）。
+
+## 7.3.1 输入错误的 HTTP 映射
+
+请求体的 pydantic 校验失败走 FastAPI 原生 422（`{"detail":[...]}`），不走 400；语义错误（未知任务、时间格式不对等）才是 400。这是 FastAPI 的既定行为，客户端按 4xx 统一处理即可。
 
 ### 7.4 急停
 
