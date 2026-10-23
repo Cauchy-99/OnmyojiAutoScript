@@ -64,7 +64,7 @@ DSH (agent)  ── streamable-http ──▶  Web/API 进程 (uvicorn :22267)
 - **命令队列** `cmd_queue: multiprocessing.Queue`，父 → 子。子进程在**任务边界**、`wait_until()` 的 5 秒轮询、`_try_acquire_queue_token()` 的 30 秒轮询里消费：
   `goto_main` / `restart_game` / `stop_game` / `emulator_start` / `emulator_stop`。
   `restart_game` 复用 `config.task_call('Restart')`，不直接调设备。
-- **帧缓存** `frame_queue: multiprocessing.Queue(maxsize=1)`，子 → 父。子进程起一个 daemon 线程，每 N 秒（默认 5，可配 0 关闭）读 `self.device.image`（**只读引用，不调 `screenshot()`**），缩放到最长边 1280 后 JPEG 编码，先清空再 `put`。父进程后台协程取最新一帧存内存。MCP 的 `screenshot` 返回这帧，最多 N 秒旧，零干扰。
+- **帧缓存** `frame_queue: multiprocessing.Queue(maxsize=1)`，子 → 父。子进程起一个 daemon 线程，每 N 秒（默认 5，可配 0 关闭）读 `self.device.image`（**只读引用，不调 `screenshot()`**），缩放到最长边 1280 后 JPEG 编码，先清空再 `put`。父进程后台协程按实例名抽干队列、各存最新一帧。MCP 的 `screenshot(instance)` 返回该实例那帧，最多 N 秒旧，零干扰；多实例互不串台。
 
 ### 3.4 目录结构
 

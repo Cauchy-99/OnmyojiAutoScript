@@ -992,28 +992,28 @@ ALLOWED_COMMANDS: frozenset[str] = frozenset(
 
 
 class FrameStore:
-    """只保留最新一帧。"""
+    """按实例保存最新一帧。"""
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        self._payload: bytes | None = None
-        self._ts: float | None = None
+        self._frames: dict[str, tuple[bytes, float]] = {}
 
-    def update(self, payload: bytes, ts: float) -> None:
+    def update(self, name: str, payload: bytes, ts: float) -> None:
         with self._lock:
-            self._payload = payload
-            self._ts = ts
+            self._frames[name] = (payload, ts)
 
-    def latest(self) -> tuple[bytes | None, float | None]:
+    def latest(self, name: str) -> tuple[bytes | None, float | None]:
         with self._lock:
-            return self._payload, self._ts
+            frame = self._frames.get(name)
+            return (None, None) if frame is None else frame
 
-    def age(self, now: float | None = None) -> float | None:
+    def age(self, name: str, now: float | None = None) -> float | None:
         with self._lock:
-            if self._ts is None:
-                return None
-            current = time.time() if now is None else now
-            return max(0.0, current - self._ts)
+            frame = self._frames.get(name)
+        if frame is None:
+            return None
+        current = time.time() if now is None else now
+        return max(0.0, current - frame[1])
 
 
 class FrameCollector:
@@ -1038,7 +1038,7 @@ class FrameCollector:
                 except Exception:
                     break
                 if payload:
-                    self.store.update(payload, ts)
+                    self.store.update(name, payload, ts)
 
     def start(self) -> None:
         if self._thread is not None and self._thread.is_alive():
@@ -1413,7 +1413,7 @@ class AgentService:
                 running_task = self._config(name).model.dict().get("running_task", "") or ""
             except Exception:
                 running_task = ""
-            age = self.frame_store.age()
+            age = self.frame_store.age(name)
             views.append(
                 InstanceView(
                     name=name,
@@ -1472,8 +1472,8 @@ class AgentService:
 
     def screenshot(self, name: str) -> dict:
         self._process(name)
-        payload, ts = self.frame_store.latest()
-        age = self.frame_store.age()
+        payload, ts = self.frame_store.latest(name)
+        age = self.frame_store.age(name)
         return {
             "available": payload is not None,
             "image": payload,
