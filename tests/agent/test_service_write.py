@@ -178,3 +178,57 @@ def test_emergency_stop_rejects_non_positive_minutes(tmp_path):
         asyncio.run(service.emergency_stop(minutes=0))
 
     assert manager.script_process["oas1"].stopped == 0
+
+
+@pytest.mark.parametrize(
+    "write",
+    [
+        pytest.param(lambda service: service.set_task_enabled("oas1", "Exploration", True), id="enable"),
+        pytest.param(
+            lambda service: service.set_task_arg("oas1", "Exploration", "scheduler", "priority", 3),
+            id="args",
+        ),
+        pytest.param(
+            lambda service: service.set_next_run("oas1", "Exploration", "2026-10-24 07:00:00"),
+            id="next_run",
+        ),
+        pytest.param(lambda service: service.set_schedule_rule("oas1", "FIFO"), id="rule"),
+        pytest.param(lambda service: service.send_command("oas1", "goto_main"), id="command"),
+        pytest.param(lambda service: asyncio.run(service.run_now("oas1", "Exploration")), id="run_now"),
+        pytest.param(lambda service: asyncio.run(service.set_running("oas2", True)), id="instance"),
+    ],
+)
+def test_hold_blocks_every_write_kind(tmp_path, write):
+    manager = FakeManager(names=("oas1", "oas2"))
+    service = _service(tmp_path, manager)
+    service.hold(minutes=30, reason="playing")
+
+    with pytest.raises(HoldActive):
+        write(service)
+
+    assert manager.config_cache("oas1").data["exploration"]["scheduler"]["enable"] is False
+    assert manager.script_process["oas2"].started == 0
+    assert manager.script_process["oas1"].cmd_queue.empty()
+
+
+def test_hold_still_allows_release_and_emergency_stop(tmp_path):
+    manager = FakeManager(names=("oas1",))
+    service = _service(tmp_path, manager)
+    service.hold(minutes=30)
+
+    assert service.release_hold()["hold"]["active"] is False
+
+    service.hold(minutes=30)
+    result = asyncio.run(service.emergency_stop())
+    assert result["stopped"] == ["oas1"]
+    assert result["hold"]["active"] is True
+
+
+def test_ungranted_approval_token_cannot_unlock_a_protected_write(tmp_path):
+    service = _service(tmp_path)
+    with pytest.raises(NeedsApproval) as info:
+        service.set_task_enabled("oas1", "MysteryShop", True)
+    token = info.value.detail["approval_token"]
+
+    with pytest.raises(NeedsApproval):
+        service.set_task_enabled("oas1", "MysteryShop", True, approval_token=token)
