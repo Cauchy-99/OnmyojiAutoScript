@@ -48,11 +48,11 @@ def test_cursor_beyond_file_restarts_from_tail(tmp_path):
 
 def test_large_file_tail_starts_on_a_line_boundary(tmp_path):
     log = tmp_path / "2026-10-23_oas1.txt"
-    lines = [f"第{i}行-任务开始" for i in range(2000)]
+    lines = [f"第{i}行-" + "任" * 200 for i in range(500)]
     log.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     result = _tailer(tmp_path).read("oas1", limit=5)
-    assert len(result["lines"]) <= 5
+    assert 0 < len(result["lines"]) <= 5
     assert "\ufffd" not in "".join(result["lines"])
     assert all(line in lines for line in result["lines"])
 
