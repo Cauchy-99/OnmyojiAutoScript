@@ -1,24 +1,25 @@
 # 每日巡检 playbook
 
-你负责让 OAS 把今天的阴阳师日常跑完。你不是开发者，**不要改任何源码**，也不要试图修 bug。
+你负责让 OAS 把今天的阴阳师日常跑完。你不是开发者，**不要改任何源码**，也不要试图修 bug——遇到问题就记 issue。
 
 ## 每一轮做什么
 
-1. 调 `get_briefing`，读 `plan`（人写的意图）、`state`（今天已经做了什么）、`hold`。
-2. `hold.active` 为真就直接结束本轮，只回一句「人在玩，已让位」。
-3. 对照 `plan.must`：谁今天还没做完，就把谁 `run_task_now(position="front")`。
-4. 看 `list_instances`：
-   - 有实例 `INACTIVE` 且现在不在 `quiet_hours` 内 → `set_instance_running(true)`。
-   - 实例 `WARNING` → `get_log` 看最后 80 行，再决定重跑还是跳过。
-5. 每做完一件事，`update_daily_state` 记一笔、`log_decision` 记一句理由。
+1. 调 `mcp__oas__get_briefing`，一次拿到 `plan`（人写的意图）、`state`（今天已做了什么）、`instances`、`hold`、`playbook`。
+2. `hold.active` 为真就结束本轮。`hold.reason` 是 `emergency_stop` 时额外检查：若 `mcp__oas__list_issues(status="open")` 还有未关闭的 issue，结束本轮并只汇报，不要恢复。
+3. 对照 `plan.must`：**排除**已在 `state.done` 或 `state.skipped` 里的任务；剩下的用 `mcp__oas__run_task_now(instance, task, position="front")` 排队。`mcp__oas__run_task_now` 只改 `next_run`，**下一个任务边界才生效**——不要指望它立刻开始。
+4. 看 `instances`：
+   - `INACTIVE` 且当前不在 `budget.quiet_hours` 内 → `mcp__oas__set_instance_running(instance, true)`。
+   - `WARNING` → `mcp__oas__get_log` 取末尾 80 行后再决定重跑还是跳过。
+5. 只对**已经真实发生**的事情记账：用 `mcp__oas__get_snapshot` 确认任务确实跑过，再 `mcp__oas__update_daily_state` 把它写进 `done`；不要因为在队列里就算完成。
 6. 本轮没有该做的事就结束，不要空转。
 
 ## 失败处理（硬规则）
 
-- 同一个任务连续失败 **2** 次（`plan.on_failure.retry`）→ 记进 `state.skipped`、`file_issue`、继续下一个。
-- **绝不**因为一个任务卡住而反复重试或等待。
-- 同一实例连续 3 个不同任务失败 → `emergency_stop`，`file_issue` 说明情况，结束本轮。
-- `hold` 解除或到期后恢复巡检：先看 `state.done`，只补没做完的，不重跑已完成的。
+- 每次任务失败，先 `mcp__oas__update_daily_state({"attempts": {"<task>": <次数>}})` 累加计数（`state.attempts` 是跨轮次的唯一计数器，headless 每轮都是新会话，只能靠它）。
+- `state.attempts[task]` 达到 `plan.on_failure.retry`（默认 2）→ 把任务写进 `state.skipped`、`mcp__oas__file_issue` 留证、继续下一个。**绝不**反复重试同一个任务。
+- 同一实例上连续 3 个不同任务失败 → `mcp__oas__emergency_stop`，`mcp__oas__file_issue` 说明情况，结束本轮。
+- 受保护任务（`plan.protected_tasks`，默认 MysteryShop/RichMan/TalismanPass）**不要自动执行**：任何写操作返回「human approval required」时，把 `approval_token` 报给人、把任务记进 `state.skipped`，不要重试。
+- 「hold is active」不是失败：结束本轮即可，不要重试、不要绕过。
 
 ## 语言与输出
 

@@ -6,7 +6,7 @@
 python server.py --port 22267
 ```
 
-`/mcp` 与 `/api/agent/*` 只接受本机访问。
+`/mcp` 与 `/api/agent/*` 只接受本机访问。起服务后可用 `python scripts/agent_smoke.py` 做只读冒烟。
 
 ## 2. 把 MCP 挂到 DSH
 
@@ -27,20 +27,32 @@ python server.py --port 22267
 
 ## 3. 每日计划
 
-```bash
-mkdir -p data/agent
-cp config/agent/daily_plan.example.yaml data/agent/daily_plan.yaml
+```powershell
+New-Item -ItemType Directory -Force -Path data/agent | Out-Null
+Copy-Item config/agent/daily_plan.example.yaml data/agent/daily_plan.yaml
 ```
 
-编辑 `must` / `optional` / `protected_tasks` / `wake`。
+编辑 `must` / `optional` / `protected_tasks` / `wake`；`budget.quiet_hours` 和 `on_failure.retry` 也会被 playbook 读取。
 
 ## 4. 两种拉起方式
 
 - **常驻**：在一个专用会话里让 agent 建一个每 15 分钟的提醒做巡检。
-- **headless**：Windows 任务计划执行
-  `dsh --profile headless "按 docs/agent/daily-playbook.md 巡检一轮，先调 mcp__oas__get_briefing"`。
+- **headless**：Windows 任务计划，每天按 `daily_plan.yaml` 的 `wake` 时刻各跑一次，起始目录见 4.1：
+  `dsh --profile headless "先调用 mcp__oas__get_briefing，然后按返回的 playbook 字段执行本轮巡检"`
 
-工作目录固定为 `data/agent/workspace/`：它写不到 `module/`，改不了源码。
+## 4.1 沙箱：先钉住工作目录（必做）
+
+「agent 改不了源码」不是靠提示词，而是靠**把 agent 的工作目录钉在 `data/agent/workspace/`**。DSH 只允许写当前工作目录之内；`AgentMemory` 只负责创建这个目录，**不会**改变任何进程的 cwd——必须由你在启动时指定。
+
+- **headless（任务计划）**：动作里必须同时设置程序与起始目录。
+  - 程序：`dsh`
+  - 参数：`--profile headless "先调用 mcp__oas__get_briefing，然后按返回的 playbook 字段执行本轮巡检"`
+  - **起始于（Start in）**：`D:\dev\OnmyojiAutoScript\data\agent\workspace`
+- **常驻会话**：先在 PowerShell 里 `cd D:\dev\OnmyojiAutoScript\data\agent\workspace`，再启动 DSH。
+
+验证（做一次就够）：在该目录下启动的会话里让 agent 尝试写 `../../module/__probe.txt`；它必须被拒绝。若写入成功，说明工作目录没钉住，立即停止无人值守运行。
+
+注意：工作目录不在仓库根，所以**不要让 agent 去读仓库里的 playbook 文件**——`get_briefing` 的 `playbook` 字段已经带上同样内容。
 
 ## 5. 人在玩的时候
 
@@ -71,5 +83,5 @@ python -c "from module.server.agent.memory import AgentMemory; print(AgentMemory
 ## 6. 出问题看哪里
 
 - `data/agent/journal/<date>.md`：agent 的决策理由；
-- `data/agent/issues/ISS-*.md`：阻塞性问题，含快照、日志片段、截图；
+- `data/agent/issues/ISS-*.md`：阻塞性问题，含快照、日志片段、截图（`file_issue` 只在当时有画面帧时才附带 `.jpg`）；
 - `data/agent/state.json`：今天做到哪了。
