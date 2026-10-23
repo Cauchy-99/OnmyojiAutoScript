@@ -181,9 +181,21 @@ class AgentMemory:
             "action": action,
         }
         data.setdefault("pending", []).append(approval)
-        data.setdefault("tokens", []).append(approval["token"])
         self._write_json(self.root / "approvals.json", data)
         return approval
+
+    def grant_approval(self, token: str) -> bool:
+        """人工批准：把 pending 里的 token 放进可用列表。不通过任何 agent 工具暴露。"""
+        data = self.approvals()
+        pending = data.get("pending", [])
+        if not any(item.get("token") == token for item in pending):
+            return False
+        data["pending"] = [item for item in pending if item.get("token") != token]
+        tokens = data.setdefault("tokens", [])
+        if token not in tokens:
+            tokens.append(token)
+        self._write_json(self.root / "approvals.json", data)
+        return True
 
     def consume_approval(self, token: str) -> bool:
         data = self.approvals()

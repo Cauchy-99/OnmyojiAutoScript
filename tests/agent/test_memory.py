@@ -83,9 +83,13 @@ def test_issue_writes_screenshot_when_frame_given(tmp_path):
     assert (tmp_path / "issues" / f"{issue['id']}.jpg").exists()
 
 
-def test_approval_token_is_single_use(tmp_path):
+def test_approval_token_requires_human_grant(tmp_path):
     memory = _memory(tmp_path)
     approval = memory.add_approval({"kind": "task_args", "task": "MysteryShop"})
     token = approval["token"]
+
+    assert memory.consume_approval(token) is False
+    assert memory.grant_approval(token) is True
     assert memory.consume_approval(token) is True
     assert memory.consume_approval(token) is False
+    assert memory.grant_approval(token) is False
