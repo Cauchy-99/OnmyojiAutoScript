@@ -296,6 +296,7 @@ data/agent/issues/ISS-20261023-181500-orochi.jpg（若有帧）
 | 帧缓存线程读 `device.image` 与主线程替换引用 | 只读引用不调 `screenshot()`；引用替换是原子操作，最坏是拿到上一帧 |
 | 命令队列在长任务期间不消费，agent 误以为已生效 | 工具返回 `effective: next_task_boundary`；长任务想立刻停就 `set_instance_running(false)` |
 | `mcp` SDK 版本漂移（当前 1.27.1，`session_manager` 在调用 `streamable_http_app()` 后才可访问） | 在 `requirements-in.txt` 固定 `mcp` 版本 |
+| `mcp>=1.13` 要求 `pydantic>=2.11`，与 OAS 原来的 `pydantic==2.10.0` 冲突（`mcp 1.11` 又不支持工具返回 `Any`，会对注解做 `issubclass` 而崩溃） | `requirements-in.txt` 把 `pydantic` 提到 `2.11.0`；`requirements.txt` 必须在 Python 3.10 环境用 `pip-compile` 重新生成（本机 3.13 无法编译钉死的 `numpy==1.24.3`） |
 
 ## 12. 附：数据契约摘要
 

@@ -20,7 +20,8 @@ fastapi==0.104.1
 uvicorn==0.38.0
 websockets==13.1
 zerorpc==0.6.3
-pydantic==2.10.0
+# mcp 1.13+ 要求 pydantic>=2.11，因此 pydantic 从 2.10.0 提到 2.11.0
+pydantic==2.11.0
 mcp==1.27.1
 
 # Utils
