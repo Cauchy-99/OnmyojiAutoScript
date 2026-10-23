@@ -574,12 +574,16 @@ def test_issue_writes_screenshot_when_frame_given(tmp_path):
     assert (tmp_path / "issues" / f"{issue['id']}.jpg").exists()
 
 
-def test_approval_token_is_single_use(tmp_path):
+def test_approval_token_requires_human_grant(tmp_path):
     memory = _memory(tmp_path)
     approval = memory.add_approval({"kind": "task_args", "task": "MysteryShop"})
     token = approval["token"]
+
+    assert memory.consume_approval(token) is False
+    assert memory.grant_approval(token) is True
     assert memory.consume_approval(token) is True
     assert memory.consume_approval(token) is False
+    assert memory.grant_approval(token) is False
 ```
 
 - [ ] **Step 2: 运行测试确认失败**
@@ -687,10 +691,7 @@ class AgentMemory:
         now = self._now()
         path = self.journal_dir / f"{now.date().isoformat()}.md"
         line = f"- {now.strftime('%H:%M')} {text}\n"
-        header = not path.exists()
         with path.open("a", encoding="utf-8") as handle:
-            if header:
-                handle.write(f"# {now.date().isoformat()} 编排日记\n\n")
             handle.write(line)
         return str(path)
 
@@ -780,6 +781,20 @@ class AgentMemory:
         data.setdefault("pending", []).append(approval)
         self._write_json(self.root / "approvals.json", data)
         return approval
+
+    def grant_approval(self, token: str) -> bool:
+        """人工批准：把 pending 里的请求移进可用列表。不通过任何 agent 工具暴露。"""
+        data = self.approvals()
+        pending = data.get("pending", [])
+        entry = next((item for item in pending if item.get("token") == token), None)
+        if entry is None:
+            return False
+        pending.remove(entry)
+        tokens = data.setdefault("tokens", [])
+        if token not in tokens:
+            tokens.append(token)
+        self._write_json(self.root / "approvals.json", data)
+        return True
 
     def consume_approval(self, token: str) -> bool:
         data = self.approvals()
@@ -1614,9 +1629,7 @@ def test_approval_token_unlocks_one_protected_write(tmp_path):
         service.set_task_enabled("oas1", "MysteryShop", True)
     token = info.value.detail["approval_token"]
 
-    approvals = service.memory.approvals()
-    approvals["tokens"].append(token)
-    service.memory._write_json(service.memory.root / "approvals.json", approvals)
+    assert service.memory.grant_approval(token) is True
 
     result = service.set_task_enabled("oas1", "MysteryShop", True, approval_token=token)
     assert result["ok"] is True

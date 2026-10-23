@@ -248,6 +248,8 @@ data/agent/issues/ISS-20261023-181500-orochi.jpg（若有帧）
 
 `protected_tasks` 由 `daily_plan.yaml` 配置，默认 `[MysteryShop, RichMan, TalismanPass]`（涉及勾玉/付费资源）。
 
+被拒绝时返回的 `approval_token` **在人工批准前不可用**：`AgentMemory.add_approval()` 只把请求写进 `pending`，启用它需要 `grant_approval(token)`——批准会把该请求从 `pending` **移**到 `tokens`（只保留一次），所以 token 消费掉之后不能被重新批准复活。批准动作**不出现在任何 MCP 工具或 REST 端点里**——否则弱 agent 可以拿着自己触发的 token 自我批准，闸门形同虚设。
+
 ### 7.3 让位（hold）
 
 所有写工具第一道闸门。三种触发：聊天里说、`POST /api/agent/hold?minutes=120`、浏览器书签（一条 GET 链接）。hold 期间：不允许任何写操作、不允许启实例；到点自动解除。`emergency_stop` 会同时进 hold。
