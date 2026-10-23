@@ -96,3 +96,16 @@ def test_tool_error_surfaces_not_swallowed(tmp_path):
         assert "nope" in str(error)
     else:
         raise AssertionError("expected a tool error")
+
+
+def test_run_task_now_accepts_an_approval_token(tmp_path):
+    mcp, _manager = _mcp(tmp_path)
+
+    async def call():
+        return await mcp.call_tool(
+            "run_task_now",
+            {"instance": "oas1", "task": "Exploration", "approval_token": "tok-123"},
+        )
+
+    content, _ = asyncio.run(call())
+    assert '"ok": true' in content[0].text.lower()

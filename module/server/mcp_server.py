@@ -2,7 +2,6 @@
 """MCP 入口：把 AgentService 包成工具。"""
 from __future__ import annotations
 
-import base64
 import json
 from typing import Any
 
@@ -15,6 +14,8 @@ INSTRUCTIONS = (
     "改动在下一个任务边界生效；要立刻停下某个实例，用 set_instance_running(false)。"
     "每日编排前先调用 get_briefing 拿到计划、当日状态和实例快照。"
     "任务失败两次就跳过并 file_issue，不要反复重试同一个任务。"
+    "「hold is active」表示人正在使用设备，所有写操作都会被拒绝，只能调用 release_device 或 emergency_stop；"
+    "「human approval required」表示该任务受保护，需要人在会话里批准后带上返回的 approval_token 重试。"
 )
 
 TOOL_NAMES = (
@@ -131,9 +132,13 @@ def create_mcp(service: AgentService) -> FastMCP:
         return _dump(service.set_next_run(instance, task, at, approval_token=approval_token))
 
     @mcp.tool()
-    async def run_task_now(instance: str, task: str, position: str = "front") -> str:
+    async def run_task_now(
+        instance: str, task: str, position: str = "front", approval_token: str | None = None
+    ) -> str:
         """立刻补跑某任务。position=front 插到队首，end 排到 5 分钟后。必要时自动启动实例。"""
-        return _dump(await service.run_now(instance, task, position=position))
+        return _dump(
+            await service.run_now(instance, task, position=position, approval_token=approval_token)
+        )
 
     @mcp.tool()
     def set_schedule_rule(instance: str, rule: str) -> str:

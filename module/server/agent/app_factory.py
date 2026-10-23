@@ -7,6 +7,7 @@ from typing import Any
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
+from module.logger import logger
 from module.server.agent.service import AgentService
 from module.server.agent_router import create_agent_router
 
@@ -58,9 +59,13 @@ def install_agent(
     app.state.agent_service = service
 
     if mount_mcp:
-        from module.server.mcp_server import create_mcp
+        try:
+            from module.server.mcp_server import create_mcp
 
-        mcp = create_mcp(service)
-        app.state.agent_mcp = mcp
-        app.mount("/mcp", mcp.streamable_http_app())
+            mcp = create_mcp(service)
+        except ImportError as error:
+            logger.warning(f'agent MCP endpoint disabled: {error}')
+        else:
+            app.state.agent_mcp = mcp
+            app.mount("/mcp", mcp.streamable_http_app())
     return service

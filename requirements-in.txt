@@ -16,11 +16,11 @@ cn2an==0.5.23
 
 # Web
 paho-mqtt==1.6.1
-fastapi==0.104.1
+fastapi==0.116.1
 uvicorn==0.38.0
 websockets==13.1
 zerorpc==0.6.3
-# mcp 1.13+ 要求 pydantic>=2.11，因此 pydantic 从 2.10.0 提到 2.11.0
+# mcp 1.13+ 要求 pydantic>=2.11、anyio>=4.5，因此 fastapi 从 0.104.1 提到 0.116.1，pydantic 从 2.10.0 提到 2.11.0
 pydantic==2.11.0
 mcp==1.27.1
 

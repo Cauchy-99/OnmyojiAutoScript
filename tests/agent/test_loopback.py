@@ -97,3 +97,28 @@ def test_protected_prefix_is_not_a_bare_prefix_match():
     assert _is_protected("/mcp/anything") is True
     assert _is_protected("/api/agentfoo") is False
     assert _is_protected("/mcpfoo") is False
+
+
+def test_install_agent_survives_missing_mcp(tmp_path, monkeypatch):
+    import sys
+
+    from fastapi import FastAPI
+
+    from module.server.agent.app_factory import install_agent
+    from module.server.agent.logtail import LogTailer
+    from module.server.agent.memory import AgentMemory
+    from module.server.agent.service import AgentService
+    from tests.agent.fakes import FakeManager
+
+    monkeypatch.setitem(sys.modules, "module.server.mcp_server", None)
+
+    service = AgentService(
+        FakeManager(), memory=AgentMemory(root=tmp_path), tailer=LogTailer(root=tmp_path)
+    )
+    app = FastAPI()
+
+    returned = install_agent(app, service=service, mount_mcp=True)
+
+    assert returned is service
+    assert getattr(app.state, "agent_mcp", None) is None
+    assert not any(getattr(route, "path", "").startswith("/mcp") for route in app.routes)
