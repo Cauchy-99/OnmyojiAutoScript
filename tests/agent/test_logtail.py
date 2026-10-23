@@ -64,3 +64,23 @@ def test_cursor_zero_is_capped_by_limit(tmp_path):
     result = _tailer(tmp_path).read("oas1", cursor=0, limit=3)
     assert result["lines"] == ["line7", "line8", "line9"]
     assert result["truncated"] is True
+
+
+def test_tail_returns_exactly_limit_lines(tmp_path):
+    log = tmp_path / "2026-10-23_oas1.txt"
+    lines = [f"line{i}-" + "x" * 600 for i in range(100)]
+    log.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    result = _tailer(tmp_path).read("oas1", limit=5)
+    assert result["lines"] == lines[-5:]
+    assert result["truncated"] is True
+
+
+def test_single_huge_line_is_not_lost(tmp_path):
+    log = tmp_path / "2026-10-23_oas1.txt"
+    huge = "单行超长日志" + "任" * 1000
+    log.write_text(huge + "\n", encoding="utf-8")
+
+    result = _tailer(tmp_path).read("oas1", limit=5)
+    assert result["lines"] == [huge]
+    assert result["truncated"] is False

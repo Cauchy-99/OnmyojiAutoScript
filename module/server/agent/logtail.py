@@ -2,8 +2,9 @@
 """增量读取 ./log/<date>_<name>.txt。
 
 游标语义：
-- `cursor=None`（或越界）→ 取文件末尾最多 `limit` 行；起始位置会吸附到下一行行首，
-  因此不会从半个 UTF-8 字符或半行开始。
+- `cursor=None`（或越界）→ 返回文件末尾最多 `limit` 行；起点吸附到行首，因此不会从
+  半个 UTF-8 字符或半行开始。窗口不够 `limit` 行时继续向前扩，只有整个文件更短时才会
+  少于 `limit` 行。
 - `cursor=N` → 从第 N 字节开始读新增内容；结果仍最多 `limit` 行，超出时只保留最新的部分
   并把 `truncated` 置为 True。
 - 返回的 `cursor` 永远是文件当前大小；`eof` 目前恒为 True（日志是追加写入的普通文件）。
@@ -15,6 +16,21 @@ from pathlib import Path
 from typing import Callable
 
 _BYTES_PER_LINE_GUESS = 400
+
+
+def _tail_start(data: bytes, size: int, limit: int) -> int:
+    """算出一个行首偏移，使 data[start:] 至少包含 limit 行（除非整个文件更短）。"""
+    start = max(0, size - limit * _BYTES_PER_LINE_GUESS)
+    while start > 0 and data.count(b"\n", start, size) <= limit:
+        earlier = max(0, start - limit * _BYTES_PER_LINE_GUESS)
+        if earlier == start:
+            break
+        start = earlier
+    if start > 0 and data[start - 1] != 0x0A:
+        newline = data.find(b"\n", start)
+        # 窗口里一个换行都没有（单行超长）时退回文件头，宁可多读也不丢数据
+        start = newline + 1 if newline != -1 else 0
+    return start
 
 
 class LogTailer:
@@ -45,10 +61,7 @@ class LogTailer:
         data = path.read_bytes()
         size = len(data)
         if cursor is None or cursor < 0 or cursor > size:
-            start = max(0, size - limit * _BYTES_PER_LINE_GUESS)
-            if start > 0:
-                newline = data.find(b"\n", start)
-                start = newline + 1 if newline != -1 else size
+            start = _tail_start(data, size, limit)
             lines = data[start:].decode("utf-8", errors="replace").splitlines()
         else:
             lines = data[cursor:].decode("utf-8", errors="replace").splitlines()
