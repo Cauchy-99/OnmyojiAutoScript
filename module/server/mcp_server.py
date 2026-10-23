@@ -2,11 +2,14 @@
 """MCP 入口：把 AgentService 包成工具。"""
 from __future__ import annotations
 
+import asyncio
 import json
+from functools import wraps
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
+from module.server.agent.policy import PolicyDenied
 from module.server.agent.service import AgentService
 
 INSTRUCTIONS = (
@@ -45,6 +48,39 @@ TOOL_NAMES = (
 
 def _dump(payload: Any) -> str:
     return json.dumps(payload, ensure_ascii=False, default=str)
+
+
+def _gate_errors(fn):
+    """把闸门拒绝转成结构化 JSON，让模型能看到 approval_token / hold 原因。"""
+
+    def _render(error) -> str:
+        return _dump(
+            {
+                "ok": False,
+                "error": type(error).__name__,
+                "message": str(error),
+                "detail": getattr(error, "detail", {}) or {},
+            }
+        )
+
+    if asyncio.iscoroutinefunction(fn):
+        @wraps(fn)
+        async def async_wrapper(*args, **kwargs):
+            try:
+                return await fn(*args, **kwargs)
+            except PolicyDenied as error:
+                return _render(error)
+
+        return async_wrapper
+
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except PolicyDenied as error:
+            return _render(error)
+
+    return wrapper
 
 
 def create_mcp(service: AgentService) -> FastMCP:
@@ -96,21 +132,25 @@ def create_mcp(service: AgentService) -> FastMCP:
         return Image(data=payload["image"], format="jpeg")
 
     @mcp.tool()
+    @_gate_errors
     async def set_instance_running(instance: str, running: bool) -> str:
         """启动或停止实例子进程。停止是唯一能立刻中断当前任务的操作。"""
         return _dump(await service.set_running(instance, running))
 
     @mcp.tool()
+    @_gate_errors
     def send_device_command(instance: str, command: str) -> str:
         """下发设备命令，下一个任务边界生效。command: goto_main/restart_game/stop_game/emulator_start/emulator_stop。"""
         return _dump(service.send_command(instance, command))
 
     @mcp.tool()
+    @_gate_errors
     def set_task_enabled(instance: str, task: str, enabled: bool, approval_token: str | None = None) -> str:
         """开关某个任务。受保护任务（勾玉/付费相关）需要人工批准后带 approval_token 调用。"""
         return _dump(service.set_task_enabled(instance, task, enabled, approval_token=approval_token))
 
     @mcp.tool()
+    @_gate_errors
     def set_task_args(
         instance: str,
         task: str,
@@ -127,11 +167,13 @@ def create_mcp(service: AgentService) -> FastMCP:
         )
 
     @mcp.tool()
+    @_gate_errors
     def set_task_next_run(instance: str, task: str, at: str, approval_token: str | None = None) -> str:
         """设置下次运行时间，格式 'YYYY-MM-DD HH:MM:SS'。"""
         return _dump(service.set_next_run(instance, task, at, approval_token=approval_token))
 
     @mcp.tool()
+    @_gate_errors
     async def run_task_now(
         instance: str, task: str, position: str = "front", approval_token: str | None = None
     ) -> str:
@@ -141,6 +183,7 @@ def create_mcp(service: AgentService) -> FastMCP:
         )
 
     @mcp.tool()
+    @_gate_errors
     def set_schedule_rule(instance: str, rule: str) -> str:
         """设置调度规则：Filter / FIFO / Priority。"""
         return _dump(service.set_schedule_rule(instance, rule))
@@ -156,6 +199,7 @@ def create_mcp(service: AgentService) -> FastMCP:
         return _dump(service.release_hold())
 
     @mcp.tool()
+    @_gate_errors
     async def emergency_stop(minutes: int = 120) -> str:
         """急停：停止所有实例并进入让位。"""
         return _dump(await service.emergency_stop(minutes=minutes))

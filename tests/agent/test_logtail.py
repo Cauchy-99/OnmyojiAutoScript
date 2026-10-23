@@ -84,3 +84,26 @@ def test_single_huge_line_is_not_lost(tmp_path):
     result = _tailer(tmp_path).read("oas1", limit=5)
     assert result["lines"] == [huge]
     assert result["truncated"] is False
+
+
+def test_tail_of_a_multi_megabyte_line_is_fast(tmp_path):
+    import time
+
+    log = tmp_path / "2026-10-23_oas1.txt"
+    log.write_bytes(b"x" * (8 * 1024 * 1024) + b"\n")
+
+    started = time.monotonic()
+    result = _tailer(tmp_path).read("oas1", limit=5)
+    elapsed = time.monotonic() - started
+
+    assert elapsed < 1.0
+    assert len(result["lines"]) == 1
+    assert len(result["lines"][0]) == 8 * 1024 * 1024
+
+
+def test_tail_start_counts_from_the_end(tmp_path):
+    log = tmp_path / "2026-10-23_oas1.txt"
+    log.write_text("a\nb\nc\nd\ne\n", encoding="utf-8")
+
+    assert _tailer(tmp_path).read("oas1", limit=2)["lines"] == ["d", "e"]
+    assert _tailer(tmp_path).read("oas1", limit=10)["lines"] == ["a", "b", "c", "d", "e"]

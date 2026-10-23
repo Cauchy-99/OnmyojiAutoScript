@@ -127,3 +127,43 @@ def test_run_task_now_forwards_the_approval_token(tmp_path):
     content, _ = asyncio.run(call())
     assert captured["approval_token"] == "tok-123"
     assert '"ok": true' in content[0].text.lower()
+
+
+def test_protected_write_returns_the_approval_token(tmp_path):
+    mcp, _manager = _mcp(tmp_path)
+
+    async def call():
+        return await mcp.call_tool(
+            "set_task_enabled", {"instance": "oas1", "task": "MysteryShop", "enabled": True}
+        )
+
+    content, _ = asyncio.run(call())
+    payload = json.loads(content[0].text)
+    assert payload["ok"] is False
+    assert payload["error"] == "NeedsApproval"
+    assert payload["detail"]["approval_token"]
+    assert payload["detail"]["task"] == "mystery_shop"
+
+
+def test_hold_rejection_is_structured(tmp_path):
+    from module.server.agent.logtail import LogTailer
+    from module.server.agent.memory import AgentMemory
+    from module.server.agent.service import AgentService
+    from module.server.mcp_server import create_mcp
+    from tests.agent.fakes import FakeManager
+
+    service = AgentService(
+        FakeManager(), memory=AgentMemory(root=tmp_path), tailer=LogTailer(root=tmp_path)
+    )
+    service.hold(minutes=30, reason="playing")
+    mcp = create_mcp(service)
+
+    async def call():
+        return await mcp.call_tool(
+            "set_task_enabled", {"instance": "oas1", "task": "Exploration", "enabled": True}
+        )
+
+    content, _ = asyncio.run(call())
+    payload = json.loads(content[0].text)
+    assert payload["ok"] is False
+    assert payload["error"] == "HoldActive"
