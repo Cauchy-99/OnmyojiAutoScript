@@ -48,14 +48,12 @@ class ScriptProcess(ScriptWSManager):
                     break
 
     async def start(self):
-        self.state = ScriptState.RUNNING
-        await self.broadcast_state({"state": self.state})
-        if self._process:
-            logger.warning(f'Script {self.config_name} is initialized')
         if self._process and self._process.is_alive():
             logger.warning(f'Script {self.config_name} is already running and first stop it')
             await self.stop()
         self._drain_queues()
+        self.state = ScriptState.RUNNING
+        await self.broadcast_state({"state": self.state})
         self._process = multiprocessing.Process(target=func,
                                                 args=(self.config_name, self.state_queue,
                                                       self.log_pipe_in, self.cmd_queue,
