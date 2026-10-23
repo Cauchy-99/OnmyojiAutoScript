@@ -48,7 +48,7 @@ class FrameCollector:
 
     def poll_once(self) -> None:
         processes = getattr(self.manager, "script_process", {}) or {}
-        for name, process in processes.items():
+        for name, process in list(processes.items()):
             frame_queue = getattr(process, "frame_queue", None)
             if frame_queue is None:
                 continue
@@ -80,9 +80,12 @@ class FrameCollector:
     def stop(self) -> None:
         self._stop.set()
         thread = self._thread
-        if thread is not None and thread.is_alive():
+        if thread is not None:
             thread.join(timeout=2.0)
-        self._thread = None
+            if thread.is_alive():
+                # 让 start() 看到旧线程仍在跑，避免出现两个 poller
+                return
+            self._thread = None
 
 
 class Commander:

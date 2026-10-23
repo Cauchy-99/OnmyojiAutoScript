@@ -77,7 +77,25 @@ def test_allowed_commands_cover_spec():
 def test_collector_start_stop_is_idempotent():
     collector = FrameCollector(FakeManager(), FrameStore(), interval=0.01)
     collector.start()
+    first = collector._thread
     collector.start()
+    assert collector._thread is first
+
     collector.stop()
+    assert collector._thread is None
     collector.stop()
-    time.sleep(0.02)
+    assert collector._thread is None
+
+
+def test_collector_drains_a_backlog_and_keeps_newest():
+    manager = FakeManager()
+    process = manager.script_process["oas1"]
+    process.frame_queue = queue.Queue(maxsize=10)
+    for index in range(3):
+        process.frame_queue.put((f"frame-{index}".encode(), float(index)))
+
+    store = FrameStore()
+    FrameCollector(manager, store).poll_once()
+
+    assert store.latest() == (b"frame-2", 2.0)
+    assert process.frame_queue.empty()
