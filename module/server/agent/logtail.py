@@ -1,5 +1,13 @@
 # This Python file uses the following encoding: utf-8
-"""增量读取 ./log/<date>_<name>.txt。"""
+"""增量读取 ./log/<date>_<name>.txt。
+
+游标语义：
+- `cursor=None`（或越界）→ 取文件末尾最多 `limit` 行；起始位置会吸附到下一行行首，
+  因此不会从半个 UTF-8 字符或半行开始。
+- `cursor=N` → 从第 N 字节开始读新增内容；结果仍最多 `limit` 行，超出时只保留最新的部分
+  并把 `truncated` 置为 True。
+- 返回的 `cursor` 永远是文件当前大小；`eof` 目前恒为 True（日志是追加写入的普通文件）。
+"""
 from __future__ import annotations
 
 from datetime import date
@@ -26,22 +34,34 @@ class LogTailer:
             raise ValueError("limit must be positive")
         path = self.path(name)
         if not path.exists():
-            return {"lines": [], "cursor": 0, "eof": True, "path": str(path)}
+            return {
+                "lines": [],
+                "cursor": 0,
+                "eof": True,
+                "path": str(path),
+                "truncated": False,
+            }
 
         data = path.read_bytes()
         size = len(data)
         if cursor is None or cursor < 0 or cursor > size:
             start = max(0, size - limit * _BYTES_PER_LINE_GUESS)
-            trimmed = True
+            if start > 0:
+                newline = data.find(b"\n", start)
+                start = newline + 1 if newline != -1 else size
+            lines = data[start:].decode("utf-8", errors="replace").splitlines()
         else:
-            start = cursor
-            trimmed = False
+            lines = data[cursor:].decode("utf-8", errors="replace").splitlines()
+            if lines and lines[0] == "":
+                lines = lines[1:]
 
-        text = data[start:].decode("utf-8", errors="replace")
-        lines = text.splitlines()
-        if trimmed and len(lines) > limit:
+        truncated = len(lines) > limit
+        if truncated:
             lines = lines[-limit:]
-        if not trimmed and lines and lines[0] == "":
-            lines = lines[1:]
-
-        return {"lines": lines, "cursor": size, "eof": True, "path": str(path)}
+        return {
+            "lines": lines,
+            "cursor": size,
+            "eof": True,
+            "path": str(path),
+            "truncated": truncated,
+        }
