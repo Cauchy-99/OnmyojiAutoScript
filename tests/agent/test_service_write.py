@@ -147,3 +147,13 @@ def test_file_issue_captures_snapshot_and_log(tmp_path):
     assert issue["task"] == "Orochi"
     assert "boom" in issue["log_excerpt"]
     assert issue["snapshot"]["name"] == "oas1"
+
+
+def test_set_task_arg_tolerates_pydantic_coercion(tmp_path):
+    manager = FakeManager()
+    result = _service(tmp_path, manager).set_task_arg(
+        "oas1", "Exploration", "scheduler", "enable", "true"
+    )
+
+    assert result["ok"] is True
+    assert manager.config_cache("oas1").data["exploration"]["scheduler"]["enable"] is True

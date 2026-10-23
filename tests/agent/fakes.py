@@ -38,6 +38,8 @@ class FakeConfig:
         node = self.data.get(task, {}).get(group)
         if node is None:
             return False
+        if isinstance(value, str) and value.strip().lower() in ("true", "false"):
+            value = value.strip().lower() == "true"
         node[argument] = value
         return True
 

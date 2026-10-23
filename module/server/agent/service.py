@@ -235,6 +235,15 @@ class AgentService:
             raise ValueError("at must be 'YYYY-MM-DD HH:MM:SS'") from error
         return parsed.strftime("%Y-%m-%d %H:%M:%S")
 
+    @staticmethod
+    def _same_value(stored: Any, value: Any) -> bool:
+        """比较写入值与 pydantic 转换后的存储值。"""
+        if stored == value:
+            return True
+        if isinstance(stored, bool) or isinstance(value, bool):
+            return str(stored).strip().lower() == str(value).strip().lower()
+        return str(stored) == str(value)
+
     # --------------------------------------------------------------- write
     def set_task_enabled(
         self, name: str, task: str, enabled: bool, approval_token: str | None = None
@@ -268,7 +277,7 @@ class AgentService:
 
         def verify(config):
             node = config.model.dict()[key].get(group) or {}
-            return node.get(argument) == value
+            return self._same_value(node.get(argument), value)
 
         return self._write(
             name, "task_args", apply, verify, task=key, approval_token=approval_token,
