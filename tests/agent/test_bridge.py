@@ -18,14 +18,25 @@ class FakeManager:
 
 def test_frame_store_returns_latest_and_age():
     store = FrameStore()
-    assert store.latest() == (None, None)
+    assert store.latest("oas1") == (None, None)
 
-    store.update(b"jpg-1", ts=100.0)
-    store.update(b"jpg-2", ts=101.0)
-    payload, ts = store.latest()
+    store.update("oas1", b"jpg-1", ts=100.0)
+    store.update("oas1", b"jpg-2", ts=101.0)
+    payload, ts = store.latest("oas1")
     assert payload == b"jpg-2"
     assert ts == 101.0
-    assert store.age(now=106.0) == 5.0
+    assert store.age("oas1", now=106.0) == 5.0
+
+
+def test_frame_store_keeps_instances_separate():
+    store = FrameStore()
+    store.update("oas1", b"a", ts=1.0)
+    store.update("oas2", b"b", ts=2.0)
+
+    assert store.latest("oas1") == (b"a", 1.0)
+    assert store.latest("oas2") == (b"b", 2.0)
+    assert store.latest("oas3") == (None, None)
+    assert store.age("oas3") is None
 
 
 def test_collector_drains_queue_and_keeps_newest():
@@ -36,11 +47,11 @@ def test_collector_drains_queue_and_keeps_newest():
     collector = FrameCollector(manager, store)
 
     collector.poll_once()
-    assert store.latest() == (b"one", 10.0)
+    assert store.latest("oas1") == (b"one", 10.0)
 
     proc.frame_queue.put((b"two", 11.0))
     collector.poll_once()
-    assert store.latest() == (b"two", 11.0)
+    assert store.latest("oas1") == (b"two", 11.0)
 
 
 def test_collector_ignores_empty_and_missing_queue():
@@ -48,7 +59,7 @@ def test_collector_ignores_empty_and_missing_queue():
     del manager.script_process["oas1"].frame_queue
     store = FrameStore()
     FrameCollector(manager, store).poll_once()
-    assert store.latest() == (None, None)
+    assert store.latest("oas1") == (None, None)
 
 
 def test_commander_pushes_known_command():
@@ -96,7 +107,7 @@ def test_collector_drains_a_backlog_and_keeps_newest():
     store = FrameStore()
     FrameCollector(manager, store).poll_once()
 
-    assert store.latest() == (b"frame-2", 2.0)
+    assert store.latest("oas1") == (b"frame-2", 2.0)
     assert process.frame_queue.empty()
 
 
@@ -149,4 +160,4 @@ def test_poll_once_survives_instance_map_mutation():
 
     FrameCollector(manager, store).poll_once()
 
-    assert store.latest() == (None, None)
+    assert store.latest("oas1") == (None, None)

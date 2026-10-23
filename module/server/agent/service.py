@@ -77,7 +77,7 @@ class AgentService:
                 running_task = self._config(name).model.dict().get("running_task", "") or ""
             except Exception:
                 running_task = ""
-            age = self.frame_store.age()
+            age = self.frame_store.age(name)
             views.append(
                 InstanceView(
                     name=name,
@@ -136,8 +136,8 @@ class AgentService:
 
     def screenshot(self, name: str) -> dict:
         self._process(name)
-        payload, ts = self.frame_store.latest()
-        age = self.frame_store.age()
+        payload, ts = self.frame_store.latest(name)
+        age = self.frame_store.age(name)
         return {
             "available": payload is not None,
             "image": payload,

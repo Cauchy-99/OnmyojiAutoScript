@@ -78,7 +78,7 @@ def test_screenshot_reports_no_frame_explicitly(tmp_path):
 def test_screenshot_returns_frame_and_age(tmp_path):
     manager = FakeManager()
     service = _service(tmp_path, manager)
-    service.frame_store.update(b"jpeg-bytes", ts=1000.0)
+    service.frame_store.update("oas1", b"jpeg-bytes", ts=1000.0)
     payload = service.screenshot("oas1")
     assert payload["available"] is True
     assert payload["image"] == b"jpeg-bytes"
@@ -90,3 +90,12 @@ def test_briefing_contains_plan_state_and_hold(tmp_path):
     assert payload["plan"]["timezone"] == "Asia/Shanghai"
     assert "done" in payload["state"]
     assert payload["hold"]["active"] is False
+
+
+def test_screenshot_is_per_instance(tmp_path):
+    manager = FakeManager(names=("oas1", "oas2"))
+    service = _service(tmp_path, manager)
+    service.frame_store.update("oas1", b"one", ts=1000.0)
+
+    assert service.screenshot("oas1")["available"] is True
+    assert service.screenshot("oas2")["available"] is False
