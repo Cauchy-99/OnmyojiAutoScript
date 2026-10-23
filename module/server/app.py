@@ -24,9 +24,16 @@ from starlette.staticfiles import StaticFiles
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await on_startup()
-    yield
-    await on_shutdown()
+    mcp = getattr(app.state, "agent_mcp", None)
+    if mcp is None:
+        await on_startup()
+        yield
+        await on_shutdown()
+        return
+    async with mcp.session_manager.run():
+        await on_startup()
+        yield
+        await on_shutdown()
 
 app = FastAPI(
     title='OAS',
@@ -46,7 +53,7 @@ app.add_middleware(
 app.include_router(home_app)
 app.include_router(script_app)
 app.include_router(tool_app)
-agent_service = install_agent(app, manager=mm, mount_mcp=False)
+agent_service = install_agent(app, manager=mm, mount_mcp=True)
 
 annotator_static_dir = Path(__file__).resolve().parent / "web" / "annotator" / "static"
 

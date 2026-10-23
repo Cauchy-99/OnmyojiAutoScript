@@ -21,6 +21,7 @@ uvicorn==0.38.0
 websockets==13.1
 zerorpc==0.6.3
 pydantic==2.10.0
+mcp==1.27.1
 
 # Utils
 rich==13.3.5
