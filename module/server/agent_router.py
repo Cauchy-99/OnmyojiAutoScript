@@ -9,6 +9,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from module.logger import logger
 from module.server.agent.policy import HoldActive, NeedsApproval
 from module.server.agent.service import AgentService, UnknownInstance
 
@@ -96,7 +97,8 @@ def _translate(error: Exception) -> HTTPException:
         return HTTPException(status_code=403, detail={"error": "needs_approval", **error.detail})
     if isinstance(error, (ValueError, KeyError, TypeError)):
         return HTTPException(status_code=400, detail=str(error))
-    return HTTPException(status_code=500, detail=str(error))
+    logger.exception(f'agent API internal error: {error}')
+    return HTTPException(status_code=500, detail='internal error')
 
 
 def create_agent_router(service: AgentService) -> APIRouter:

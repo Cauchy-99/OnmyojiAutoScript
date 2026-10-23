@@ -43,3 +43,56 @@ def test_mcp_path_is_protected():
 
 def test_normal_oas_path_is_not_protected():
     assert _run(_scope("/config_all", "10.0.0.5")) == 200
+
+
+def test_install_agent_registers_the_guard(tmp_path):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from module.server.agent.app_factory import install_agent
+    from module.server.agent.logtail import LogTailer
+    from module.server.agent.memory import AgentMemory
+    from module.server.agent.service import AgentService
+    from tests.agent.fakes import FakeManager
+
+    service = AgentService(
+        FakeManager(), memory=AgentMemory(root=tmp_path), tailer=LogTailer(root=tmp_path)
+    )
+    app = FastAPI()
+    install_agent(app, service=service, mount_mcp=False)
+    client = TestClient(app)
+
+    # TestClient's default client host is "testclient", which is not loopback.
+    assert client.get("/api/agent/instances").status_code == 403
+
+
+def test_install_agent_leaves_other_paths_alone(tmp_path):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from module.server.agent.app_factory import install_agent
+    from module.server.agent.logtail import LogTailer
+    from module.server.agent.memory import AgentMemory
+    from module.server.agent.service import AgentService
+    from tests.agent.fakes import FakeManager
+
+    service = AgentService(
+        FakeManager(), memory=AgentMemory(root=tmp_path), tailer=LogTailer(root=tmp_path)
+    )
+    app = FastAPI()
+    install_agent(app, service=service, mount_mcp=False)
+    client = TestClient(app)
+
+    assert client.get("/api/agent/instances").status_code == 403
+    assert client.get("/home_menu").status_code == 404
+
+
+def test_protected_prefix_is_not_a_bare_prefix_match():
+    from module.server.agent.app_factory import _is_protected
+
+    assert _is_protected("/api/agent") is True
+    assert _is_protected("/api/agent/instances") is True
+    assert _is_protected("/mcp") is True
+    assert _is_protected("/mcp/anything") is True
+    assert _is_protected("/api/agentfoo") is False
+    assert _is_protected("/mcpfoo") is False

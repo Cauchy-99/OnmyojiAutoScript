@@ -2,7 +2,6 @@
 """把 agent 能力层装进 FastAPI：路由、回环中间件、MCP 挂载。"""
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from fastapi import FastAPI
@@ -11,8 +10,12 @@ from fastapi.responses import JSONResponse
 from module.server.agent.service import AgentService
 from module.server.agent_router import create_agent_router
 
-LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
+LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost", "::ffff:127.0.0.1"}
 PROTECTED_PREFIXES = ("/api/agent", "/mcp")
+
+
+def _is_protected(path: str) -> bool:
+    return any(path == prefix or path.startswith(prefix + "/") for prefix in PROTECTED_PREFIXES)
 
 
 class LoopbackOnlyMiddleware:
@@ -22,7 +25,7 @@ class LoopbackOnlyMiddleware:
         self.app = app
 
     async def __call__(self, scope, receive, send):
-        if scope.get("type") == "http" and str(scope.get("path", "")).startswith(PROTECTED_PREFIXES):
+        if scope.get("type") == "http" and _is_protected(str(scope.get("path", ""))):
             client = scope.get("client")
             host = client[0] if client else None
             if host not in LOOPBACK_HOSTS:

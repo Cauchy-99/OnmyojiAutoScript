@@ -86,7 +86,11 @@ async def on_startup():
 
 
 async def on_shutdown():
+    global _frame_collector
     logger.info('OAS web service shutdown done')
+    if _frame_collector is not None:
+        _frame_collector.stop()
+        _frame_collector = None
 
 
 @app.exception_handler(Exception)
