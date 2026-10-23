@@ -1,0 +1,14 @@
+# 复制到 data/agent/daily_plan.yaml 后按需修改。
+timezone: Asia/Shanghai
+wake: ["07:00", "12:00", "18:00", "22:30"]
+must: [Exploration, WantedQuests, SoulsTidy]
+optional: [KittyShop, MysteryShop]
+protected_tasks: [MysteryShop, RichMan, TalismanPass]
+budget:
+  max_active_hours: 10
+  quiet_hours: ["23:30-07:00"]
+on_failure:
+  retry: 2
+  then: Restart
+  then_notify: true
+  skip: true

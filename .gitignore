@@ -275,3 +275,6 @@ oas.bat
 
 # Per-instance FrogBoss prediction and result history
 data/frog_oas/
+
+# Agent runtime state (plans, journal, issues, workspace)
+data/agent/
