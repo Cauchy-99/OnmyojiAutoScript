@@ -74,6 +74,16 @@ def test_instance_control_is_reversible():
     assert policy.classify_write("instance") == policy.ActionClass.REVERSIBLE
 
 
+def test_task_scoped_kind_requires_task():
+    for kind in ("task_enable", "task_args", "next_run", "run_now"):
+        with pytest.raises(ValueError):
+            policy.classify_write(kind)
+
+
+def test_uppercase_protected_task_name_is_still_protected():
+    assert policy.classify_write("task_enable", "MYSTERY_SHOP") == policy.ActionClass.IRREVERSIBLE
+
+
 def test_hold_activates_and_expires():
     now = datetime(2026, 10, 23, 12, 0, 0)
 
@@ -257,9 +267,10 @@ def classify_write(
         return ActionClass.REVERSIBLE
     if kind in _TASK_KINDS:
         if task is None:
-            return ActionClass.REVERSIBLE
-        protected_set = {convert_to_underscore(item) for item in protected}
-        if convert_to_underscore(task) in protected_set:
+            # 任务级写操作必须指明任务，缺失即拒绝（fail-closed）
+            raise ValueError(f"action kind `{kind}` requires a task")
+        protected_set = {convert_to_underscore(item).lower() for item in protected}
+        if convert_to_underscore(task).lower() in protected_set:
             return ActionClass.IRREVERSIBLE
         return ActionClass.REVERSIBLE
     raise ValueError(f"unknown action kind: {kind}")
@@ -298,7 +309,7 @@ class HoldGate:
 - [ ] **Step 5: 运行测试确认通过**
 
 Run: `python -m pytest tests/agent/test_policy.py -v`
-Expected: PASS，7 passed
+Expected: PASS，10 passed
 
 - [ ] **Step 6: 提交**
 
