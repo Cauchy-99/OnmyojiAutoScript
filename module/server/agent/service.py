@@ -96,7 +96,27 @@ class AgentService:
         config = self._config(name)
         try:
             config.update_scheduler()
-            schedule = config.get_schedule_data()
+            pending = [
+                {"name": item.command, "next_run": str(item.next_run)}
+                for item in (getattr(config, "pending_task", None) or [])
+            ]
+            waiting = [
+                {"name": item.command, "next_run": str(item.next_run)}
+                for item in (getattr(config, "waiting_task", None) or [])
+            ]
+            running: dict = {}
+            running_task = config.model.dict().get("running_task", "") or ""
+            if running_task:
+                from module.config.utils import convert_to_underscore
+
+                key = convert_to_underscore(running_task)
+                match = next((item for item in pending if item["name"] == key), None)
+                if match is not None:
+                    pending.remove(match)
+                    running = match
+                else:
+                    running = {"name": key, "next_run": None}
+            schedule = {"running": running, "pending": pending, "waiting": waiting}
         except Exception as error:
             schedule = {"error": str(error), "running": {}, "pending": [], "waiting": []}
         snapshot = Snapshot(
@@ -174,7 +194,7 @@ class AgentService:
         if classify_write(kind, task, protected) is not ActionClass.IRREVERSIBLE:
             return
 
-        if approval_token and self.memory.consume_approval(approval_token):
+        if approval_token and self.memory.check_approval(approval_token, kind, task):
             return
 
         approval = self.memory.add_approval(
@@ -202,16 +222,23 @@ class AgentService:
             raise ValueError(f"apply failed: kind={kind} task={task}")
 
         fresh = self._config(name)
-        if not verify_fn(fresh):
+        verdict = verify_fn(fresh)
+        if verdict is False:
             retry_config = self._config(name)
             apply_fn(retry_config)
             fresh = self._config(name)
-            if not verify_fn(fresh):
+            verdict = verify_fn(fresh)
+            if verdict is False:
                 self.memory.append_journal(f"写入校验失败 kind={kind} task={task}")
                 raise ValueError(f"verify failed: kind={kind} task={task}")
+        verified = verdict is True
+
+        if approval_token:
+            self.memory.consume_approval(approval_token)
 
         payload = dict(detail or {})
         payload.setdefault("instance", name)
+        payload.setdefault("verified", verified)
         if task:
             payload.setdefault("task", task)
         return WriteResult(
@@ -280,8 +307,12 @@ class AgentService:
             return config.script_set_arg(key, group, argument, value)
 
         def verify(config):
-            node = config.model.dict()[key].get(group) or {}
-            return self._same_value(node.get(argument), value)
+            data = config.model.dict()
+            node = data.get(key) or {}
+            group_node = node.get(group)
+            if not isinstance(group_node, dict) or argument not in group_node:
+                return None
+            return self._same_value(group_node.get(argument), value)
 
         return self._write(
             name, "task_args", apply, verify, task=key, approval_token=approval_token,

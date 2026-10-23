@@ -46,6 +46,20 @@ def test_state_patch_merges_and_persists(tmp_path):
     assert on_disk["attempts"] == {"Orochi": 1}
 
 
+def test_state_rolls_over_on_a_new_day(tmp_path):
+    day_one = AgentMemory(root=tmp_path, now=lambda: datetime(2026, 10, 23, 18, 0, 0))
+    day_one.update_state({"done": ["Exploration"], "attempts": {"Orochi": 2}})
+
+    day_two = AgentMemory(root=tmp_path, now=lambda: datetime(2026, 10, 24, 7, 0, 0))
+    fresh = day_two.state()
+
+    assert fresh["date"] == "2026-10-24"
+    assert fresh["done"] == []
+    assert fresh["attempts"] == {}
+    journal = (tmp_path / "journal" / "2026-10-24.md").read_text(encoding="utf-8")
+    assert "跨天" in journal
+
+
 def test_journal_appends_one_line_per_call(tmp_path):
     memory = _memory(tmp_path)
     path = memory.append_journal("插队 Orochi")
@@ -88,8 +102,10 @@ def test_approval_token_requires_human_grant(tmp_path):
     approval = memory.add_approval({"kind": "task_args", "task": "MysteryShop"})
     token = approval["token"]
 
-    assert memory.consume_approval(token) is False
+    assert memory.check_approval(token, "task_args", "MysteryShop") is False
     assert memory.grant_approval(token) is True
+    assert memory.check_approval(token, "task_args", "MysteryShop") is True
+    assert memory.check_approval(token, "task_args", "RichMan") is False
     assert memory.consume_approval(token) is True
     assert memory.consume_approval(token) is False
     assert memory.grant_approval(token) is False

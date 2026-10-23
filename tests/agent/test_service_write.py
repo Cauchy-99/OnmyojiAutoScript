@@ -3,11 +3,12 @@ from datetime import date, datetime, timedelta
 
 import pytest
 
+from module.config.utils import convert_to_underscore
 from module.server.agent.logtail import LogTailer
 from module.server.agent.memory import AgentMemory
 from module.server.agent.policy import HoldActive, NeedsApproval
 from module.server.agent.service import AgentService
-from tests.agent.fakes import FakeManager, FakeProcess
+from tests.agent.fakes import FakeConfig, FakeManager, FakeProcess
 
 FIXED_NOW = datetime(2026, 10, 23, 18, 15, 0)
 
@@ -104,6 +105,19 @@ def test_approval_token_unlocks_one_protected_write(tmp_path):
         service.set_task_enabled("oas1", "MysteryShop", False)
 
 
+def test_granted_token_does_not_authorize_a_different_task(tmp_path):
+    service = _service(tmp_path)
+    with pytest.raises(NeedsApproval) as info:
+        service.set_task_enabled("oas1", "MysteryShop", True)
+    token = info.value.detail["approval_token"]
+    assert service.memory.grant_approval(token) is True
+
+    with pytest.raises(NeedsApproval):
+        service.set_task_enabled("oas1", "RichMan", True)
+
+    assert service.set_task_enabled("oas1", "MysteryShop", True, approval_token=token)["ok"] is True
+
+
 def test_hold_blocks_all_writes(tmp_path):
     service = _service(tmp_path)
     service.hold(minutes=60, reason="playing")
@@ -157,6 +171,32 @@ def test_set_task_arg_tolerates_pydantic_coercion(tmp_path):
 
     assert result["ok"] is True
     assert manager.config_cache("oas1").data["exploration"]["scheduler"]["enable"] is True
+
+
+class ListGroupConfig(FakeConfig):
+    """真实 Config 的 list 组（如 invite_info_list_1）：按索引写进列表，dict() 读回仍是 list。"""
+
+    def script_set_arg(self, task, group, argument, value):
+        task = convert_to_underscore(task)
+        group = convert_to_underscore(group)
+        node = self.data.get(task, {}).get(group)
+        if isinstance(node, list) and str(argument).isdigit():
+            node[int(argument)] = value
+            return True
+        return super().script_set_arg(task, group, argument, value)
+
+
+def test_set_task_arg_reports_unverifiable_shapes_instead_of_failing(tmp_path):
+    manager = FakeManager(configs={"oas1": ListGroupConfig("oas1")})
+    data = manager.config_cache("oas1").data
+    data["exploration"]["invite_list_1"] = ["old"]
+    service = _service(tmp_path, manager)
+
+    result = service.set_task_arg("oas1", "Exploration", "invite_list_1", "0", "x")
+
+    assert result["ok"] is True
+    assert result["detail"]["verified"] is False
+    assert data["exploration"]["invite_list_1"] == ["x"]
 
 
 def test_emergency_stop_survives_a_broken_plan(tmp_path):

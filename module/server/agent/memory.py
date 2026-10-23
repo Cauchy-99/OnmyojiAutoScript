@@ -80,9 +80,15 @@ class AgentMemory:
     # --------------------------------------------------------------- state
     def state(self) -> dict:
         path = self.root / "state.json"
+        today = self._now().date().isoformat()
         if not path.exists():
-            return {"date": self._now().date().isoformat(), "done": [], "skipped": [], "attempts": {}}
-        return json.loads(path.read_text(encoding="utf-8"))
+            return {"date": today, "done": [], "skipped": [], "attempts": {}}
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if data.get("date") != today:
+            self.append_journal(f"跨天：{data.get('date')} -> {today}，重置当日进度")
+            data = {"date": today, "done": [], "skipped": [], "attempts": {}}
+            self._write_json(path, data)
+        return data
 
     def update_state(self, patch: dict) -> dict:
         merged = _deep_merge(self.state(), patch)
@@ -190,26 +196,46 @@ class AgentMemory:
         return approval
 
     def grant_approval(self, token: str) -> bool:
-        """人工批准：把 pending 里的 token 放进可用列表。不通过任何 agent 工具暴露。"""
+        """人工批准：把 pending 里的请求移进可用列表，保留它批准的动作。"""
         data = self.approvals()
         pending = data.get("pending", [])
-        if not any(item.get("token") == token for item in pending):
+        entry = next((item for item in pending if item.get("token") == token), None)
+        if entry is None:
             return False
-        data["pending"] = [item for item in pending if item.get("token") != token]
+        pending.remove(entry)
         tokens = data.setdefault("tokens", [])
-        if token not in tokens:
-            tokens.append(token)
+        if not any(
+            (item.get("token") if isinstance(item, dict) else item) == token
+            for item in tokens
+        ):
+            tokens.append({"token": token, "action": entry.get("action") or {}})
         self._write_json(self.root / "approvals.json", data)
         return True
+
+    def check_approval(self, token: str, kind: str, task: str | None) -> bool:
+        """只校验、不消耗：令牌存在且批准的动作与本次写操作一致。"""
+        data = self.approvals()
+        for item in data.get("tokens", []):
+            if isinstance(item, str):
+                if item == token:
+                    return True
+                continue
+            if item.get("token") != token:
+                continue
+            action = item.get("action") or {}
+            return action.get("kind") == kind and action.get("task") == task
+        return False
 
     def consume_approval(self, token: str) -> bool:
         data = self.approvals()
         tokens = data.setdefault("tokens", [])
-        if token not in tokens:
-            return False
-        tokens.remove(token)
-        self._write_json(self.root / "approvals.json", data)
-        return True
+        for index, item in enumerate(tokens):
+            current = item if isinstance(item, str) else item.get("token")
+            if current == token:
+                tokens.pop(index)
+                self._write_json(self.root / "approvals.json", data)
+                return True
+        return False
 
     # -------------------------------------------------------------- helper
     @staticmethod
