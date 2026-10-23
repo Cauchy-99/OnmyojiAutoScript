@@ -93,3 +93,36 @@ def test_approval_token_requires_human_grant(tmp_path):
     assert memory.consume_approval(token) is True
     assert memory.consume_approval(token) is False
     assert memory.grant_approval(token) is False
+
+
+def test_plan_results_do_not_share_state(tmp_path):
+    from module.server.agent.memory import DEFAULT_PLAN
+
+    memory = _memory(tmp_path)
+    first = memory.plan()
+    first["must"].append("Exploration")
+    first["budget"]["max_active_hours"] = 999
+
+    second = memory.plan()
+    assert second["must"] == []
+    assert second["budget"]["max_active_hours"] == 10
+    assert DEFAULT_PLAN["must"] == []
+    assert DEFAULT_PLAN["budget"]["max_active_hours"] == 10
+
+
+def test_set_issue_status_rejects_path_traversal(tmp_path):
+    memory = _memory(tmp_path)
+    try:
+        memory.set_issue_status("../state", "resolved")
+    except ValueError as error:
+        assert "invalid issue id" in str(error)
+    else:
+        raise AssertionError("expected ValueError")
+
+
+def test_set_issue_status_returns_false_without_status_marker(tmp_path):
+    memory = _memory(tmp_path)
+    path = tmp_path / "issues" / "ISS-20261023-181500-orochi.md"
+    path.write_text("---\nid: ISS-20261023-181500-orochi\n---\n\n## 症状\nx\n", encoding="utf-8")
+
+    assert memory.set_issue_status("ISS-20261023-181500-orochi", "resolved") is False

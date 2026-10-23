@@ -2,6 +2,7 @@
 """data/agent 下的计划、状态、日记、issue 与审批。"""
 from __future__ import annotations
 
+import copy
 import json
 import re
 import uuid
@@ -29,12 +30,12 @@ _STATUSES = ("open", "resolved", "wontfix")
 
 
 def _deep_merge(base: dict, override: dict) -> dict:
-    result = dict(base)
+    result = copy.deepcopy(base)
     for key, value in override.items():
         if isinstance(value, dict) and isinstance(result.get(key), dict):
             result[key] = _deep_merge(result[key], value)
         else:
-            result[key] = value
+            result[key] = copy.deepcopy(value)
     return result
 
 
@@ -157,11 +158,15 @@ class AgentMemory:
     def set_issue_status(self, issue_id: str, status: str) -> bool:
         if status not in _STATUSES:
             raise ValueError(f"status must be one of {_STATUSES}")
+        if not re.fullmatch(r"ISS-\d{8}-\d{6}-[a-z0-9-]+", issue_id):
+            raise ValueError(f"invalid issue id: {issue_id}")
         path = self.issues_dir / f"{issue_id}.md"
         if not path.exists():
             return False
         text = path.read_text(encoding="utf-8")
         updated = re.sub(r"^status: .*$", f"status: {status}", text, count=1, flags=re.MULTILINE)
+        if updated == text:
+            return False
         with atomic_write(str(path), overwrite=True, encoding="utf-8") as handle:
             handle.write(updated)
         return True
