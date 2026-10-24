@@ -1,0 +1,26 @@
+{
+  "name": "dsh-plugin-oas",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Deterministic daily/weekly orchestration for OnmyojiAutoScript, with anomaly escalation to the agent",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": { "types": "./lib/types/index.d.ts", "default": "./lib/index.js" },
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": ["lib/index.js", "lib/**/*.js", "lib/types/**/*.d.ts", "cordis.patch.yml"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dsh": { "bundle": { "patch": "./cordis.patch.yml" } },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}

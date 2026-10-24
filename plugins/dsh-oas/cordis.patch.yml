@@ -1,0 +1,7 @@
+- insert:
+    - id: dsh-oas
+      name: dsh-plugin-oas
+      config:
+        baseUrl: http://127.0.0.1:22267
+        instances: [oas1]
+        tickSeconds: 60
