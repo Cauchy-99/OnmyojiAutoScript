@@ -98,8 +98,12 @@ class AgentMemory:
         path = self.root / "state.json"
         today = self._now().date().isoformat()
         if not path.exists():
-            return {"date": today, "instances": {}}
+            return {"date": today, "instances": {}, "weekly": {}}
         data = json.loads(path.read_text(encoding="utf-8"))
+        # weekly 跨天不重置：按 ISO 周记录"这周已经做过"，与当日进度无关
+        weekly = data.get("weekly")
+        if not isinstance(weekly, dict):
+            weekly = {}
         legacy = any(key in data for key in ("done", "skipped", "attempts"))
         dirty = legacy
         if legacy:
@@ -110,13 +114,16 @@ class AgentMemory:
                 "skipped": data.pop("skipped", []),
                 "attempts": data.pop("attempts", {}),
             }
-            data = {"date": data.get("date", today), "instances": instances}
+            data = {"date": data.get("date", today), "instances": instances, "weekly": weekly}
         if data.get("date") != today:
             self.append_journal(f"跨天：{data.get('date')} -> {today}，重置当日进度")
-            data = {"date": today, "instances": {}}
+            data = {"date": today, "instances": {}, "weekly": weekly}
             dirty = True
         if "instances" not in data:
             data["instances"] = {}
+            dirty = True
+        if not isinstance(data.get("weekly"), dict):
+            data["weekly"] = weekly
             dirty = True
         if dirty:
             self._write_json(path, data)

@@ -86,6 +86,30 @@ def test_state_rolls_over_on_a_new_day(tmp_path):
     assert "跨天" in journal
 
 
+def test_weekly_state_survives_the_daily_rollover(tmp_path):
+    day_one = AgentMemory(root=tmp_path, now=lambda: datetime(2026, 10, 23, 18, 0, 0))
+    day_one.update_state({"weekly": {"oas1": {"TrueOrochi": "2026-W43"}}})
+
+    day_two = AgentMemory(root=tmp_path, now=lambda: datetime(2026, 10, 24, 7, 0, 0))
+    document = day_two.state()
+
+    assert document["date"] == "2026-10-24"
+    assert document["instances"] == {}
+    assert document["weekly"] == {"oas1": {"TrueOrochi": "2026-W43"}}
+
+
+def test_state_without_weekly_gains_an_empty_bucket(tmp_path):
+    import json
+
+    (tmp_path / "state.json").write_text(
+        json.dumps({"date": "2026-10-23", "instances": {"oas1": {"done": []}}}),
+        encoding="utf-8",
+    )
+    document = _memory(tmp_path).state()
+    assert document["weekly"] == {}
+    assert document["instances"]["oas1"]["done"] == []
+
+
 def test_journal_appends_one_line_per_call(tmp_path):
     memory = _memory(tmp_path)
     path = memory.append_journal("插队 Orochi")
