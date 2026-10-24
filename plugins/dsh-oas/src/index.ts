@@ -10,6 +10,10 @@ import type {
 
 export const name = 'oas';
 
+// Cordis 要求先声明依赖才能取 ctx.tools；缺了会在加载时报
+// "cannot get property \"tools\" without inject"。
+export const inject = ['tools'];
+
 const DEFAULT_BASE_URL = 'http://127.0.0.1:22267';
 const DEFAULT_INSTANCES = ['oas1'];
 const DEFAULT_TICK_SECONDS = 60;
@@ -99,7 +103,21 @@ export function apply(
         typeof args.instance === 'string' && args.instance !== ''
           ? args.instance
           : undefined;
-      return JSON.stringify(await client.briefing(instance), null, 2);
+      try {
+        return JSON.stringify(await client.briefing(instance), null, 2);
+      } catch (error) {
+        // 服务没起时给模型一条能读懂的原因，而不是裸的 "fetch failed"
+        return JSON.stringify(
+          {
+            ok: false,
+            error: error instanceof Error ? error.name : 'Error',
+            message: error instanceof Error ? error.message : String(error),
+            hint: `OAS 后端 (${settings.baseUrl}) 是否已启动？先跑 python server.py`,
+          },
+          null,
+          2,
+        );
+      }
     },
   };
 

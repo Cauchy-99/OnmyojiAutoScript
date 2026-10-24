@@ -108,3 +108,27 @@ pnpm --dir plugins/dsh-oas test
 ```
 
 零运行时依赖：工具用原始 `ToolDefinition`（`parameters` + `output.schema/render` + `execute`）注册，配置在插件内校验，因此不绑定 DSH 的版本。
+
+### 迭代安装用 `link:`，不要用 `file:`
+
+`file:` 会让 pnpm 把包**拷贝**进 profile，之后重建 `lib/` 不会同步，必须改版本号或删了重装。用软链则改完 `pnpm build` 即生效：
+
+```powershell
+pnpm dsh plugin --profile web remove dsh-plugin-oas
+pnpm dsh plugin --profile web add link:D:/dev/OnmyojiAutoScript/plugins/dsh-oas
+```
+
+### 三个已经踩过的坑
+
+1. **必须声明 `export const inject = ['tools']`**。Cordis 在取 `ctx.tools` 前会检查依赖，缺了会在加载时报 `cannot get property "tools" without inject`，插件静默不工作。
+2. **`package.json` 必须是 UTF-8 无 BOM**。带 BOM 会被 DSH 的安装校验拒绝（`Unexpected token '﻿'`）。PowerShell 的 `Set-Content -Encoding utf8` 会写入 BOM，改用 `[System.IO.File]::WriteAllText($p, $text, (New-Object System.Text.UTF8Encoding $false))`。
+3. **`config` 改动会热重载，代码改动需要重启 host**。验证阶段先把 `enable: false`，只调三个工具；确认后再打开。
+
+### 手工验证一次
+
+```powershell
+python server.py -p 22267          # 真实后端或 stub 均可
+```
+
+然后在 DSH 会话里：`oas_status(instance="oas1")` → briefing JSON；`oas_escalations()` → `[]`；`oas_escalation_resolve(id="nope")` → `{"ok": false}`。
+
