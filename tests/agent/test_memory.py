@@ -192,3 +192,13 @@ def test_set_issue_status_returns_false_without_status_marker(tmp_path):
     path.write_text("---\nid: ISS-20261023-181500-orochi\n---\n\n## 症状\nx\n", encoding="utf-8")
 
     assert memory.set_issue_status("ISS-20261023-181500-orochi", "resolved") is False
+
+
+def test_plan_keeps_weekly_entries(tmp_path):
+    (tmp_path / "daily_plan.yaml").write_text(
+        "weekly:\n  - {task: TrueOrochi, days: [1, 5]}\n", encoding="utf-8"
+    )
+
+    plan = _memory(tmp_path).plan()
+
+    assert plan["weekly"] == [{"task": "TrueOrochi", "days": [1, 5]}]

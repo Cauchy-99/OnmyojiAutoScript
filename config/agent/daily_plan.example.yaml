@@ -4,6 +4,12 @@ wake: ["07:00", "12:00", "18:00", "22:30"]
 must: [Exploration, WantedQuests, SoulsTidy]
 optional: [KittyShop, MysteryShop]
 protected_tasks: [MysteryShop, RichMan, TalismanPass]
+# 每周任务：days 用 ISO 星期（1=周一 … 7=周日），当天且本周还没做过才会排一次。
+# 完成状态记在 data/agent/state.json 的 weekly 桶里，跨天不会被重置。
+weekly:
+  - { task: TrueOrochi, days: [1, 5] }
+  - { task: Secret, days: [3] }
+  - { task: Duel, days: [6, 7] }
 budget:
   max_active_hours: 10
   quiet_hours: ["23:30-07:00"]
