@@ -124,7 +124,7 @@ def test_briefing_contains_plan_state_and_hold(tmp_path):
     payload = _service(tmp_path).briefing()
     assert payload["instances"][0]["name"] == "oas1"
     assert payload["plan"]["timezone"] == "Asia/Shanghai"
-    assert "done" in payload["state"]
+    assert "instances" in payload["state"]
     assert payload["hold"]["active"] is False
 
 

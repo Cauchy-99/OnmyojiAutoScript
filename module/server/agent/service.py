@@ -168,24 +168,16 @@ class AgentService:
 
     def briefing(self, instance: str | None = None) -> dict:
         playbook = ""
-        path = Path("docs/agent/daily-playbook.md")
-        if path.exists():
-            playbook = path.read_text(encoding="utf-8")[:4000]
-        state = self.memory.state(instance)
-        if instance is None:
-            # 兼容只读旧字段的调用方：整份 state 文档仍返回，同时镜像 default 桶的旧扁平键
-            default = state.get("instances", {}).get("default", {})
-            state = {
-                **state,
-                "done": list(default.get("done", [])),
-                "skipped": list(default.get("skipped", [])),
-                "attempts": dict(default.get("attempts", {})),
-            }
+        for candidate in ("config/agent/playbook.md", "docs/agent/daily-playbook.md"):
+            path = Path(candidate)
+            if path.exists():
+                playbook = path.read_text(encoding="utf-8")[:4000]
+                break
         return {
             "now": self._now().strftime("%Y-%m-%dT%H:%M:%S"),
             "instances": self.list_instances(),
             "plan": self.memory.plan(),
-            "state": state,
+            "state": self.memory.state(instance),
             "hold": self._hold_dict(),
             "playbook": playbook,
         }

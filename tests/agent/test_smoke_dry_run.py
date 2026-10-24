@@ -1,4 +1,4 @@
-import importlib.util
+﻿import importlib.util
 from pathlib import Path
 
 
@@ -13,6 +13,6 @@ def test_smoke_module_imports():
 
 
 def test_playbook_and_readme_exist():
-    assert Path("docs/agent/daily-playbook.md").exists()
+    assert Path("config/agent/playbook.md").exists()
     assert Path("docs/agent/README.md").exists()
-    assert "不要改任何源码" in Path("docs/agent/daily-playbook.md").read_text(encoding="utf-8")
+    assert "不要改任何源码" in Path("config/agent/playbook.md").read_text(encoding="utf-8")

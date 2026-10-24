@@ -121,7 +121,7 @@ def create_mcp(service: AgentService) -> FastMCP:
         return _dump(service.log(instance, cursor=cursor, limit=limit))
 
     @mcp.tool()
-    def screenshot(instance: str) -> Any:
+    def screenshot(instance: str):
         """返回该实例最新一帧游戏画面（可能落后几秒）。没有帧时返回说明文字。"""
         from mcp.server.fastmcp import Image
 
