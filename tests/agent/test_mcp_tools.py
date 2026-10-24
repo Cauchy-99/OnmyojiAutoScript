@@ -169,6 +169,19 @@ def test_hold_rejection_is_structured(tmp_path):
     assert payload["error"] == "HoldActive"
 
 
+def test_update_daily_state_accepts_an_instance(tmp_path):
+    mcp, _manager = _mcp(tmp_path)
+
+    async def call():
+        return await mcp.call_tool(
+            "update_daily_state",
+            {"patch": {"done": ["Exploration"]}, "instance": "oas2"},
+        )
+
+    content, _ = asyncio.run(call())
+    assert content[0].text
+
+
 def test_release_device_is_not_exposed_to_the_agent(tmp_path):
     mcp, _manager = _mcp(tmp_path)
 

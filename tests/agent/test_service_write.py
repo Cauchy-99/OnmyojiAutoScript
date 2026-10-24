@@ -153,6 +153,15 @@ def test_daily_state_and_journal_are_persisted(tmp_path):
     assert payload["path"].endswith(".md")
 
 
+def test_daily_state_is_per_instance(tmp_path):
+    service = _service(tmp_path)
+    service.update_daily_state({"done": ["Exploration"]}, instance="oas1")
+    service.update_daily_state({"done": ["Orochi"]}, instance="oas2")
+
+    assert service.briefing("oas1")["state"]["done"] == ["Exploration"]
+    assert service.briefing("oas2")["state"]["done"] == ["Orochi"]
+
+
 def test_file_issue_captures_snapshot_and_log(tmp_path):
     service = _service(tmp_path)
     (tmp_path / f"{date.today().isoformat()}_oas1.txt").write_text("boom\n", encoding="utf-8")

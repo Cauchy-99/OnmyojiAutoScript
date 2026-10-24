@@ -78,22 +78,55 @@ class AgentMemory:
         return plan
 
     # --------------------------------------------------------------- state
-    def state(self) -> dict:
+    def state(self, instance: str | None = None) -> dict:
+        data = self._load_state()
+        if instance is None:
+            return data
+        return self._instance_state(data, instance)
+
+    def update_state(self, patch: dict, instance: str | None = None) -> dict:
+        data = self._load_state()
+        if instance is None:
+            data = merged = _deep_merge(data, patch)
+        else:
+            bucket = self._instance_state(data, instance)
+            data.setdefault("instances", {})[instance] = merged = _deep_merge(bucket, patch)
+        self._write_json(self.root / "state.json", data)
+        return merged
+
+    def _load_state(self) -> dict:
         path = self.root / "state.json"
         today = self._now().date().isoformat()
         if not path.exists():
-            return {"date": today, "done": [], "skipped": [], "attempts": {}}
+            return {"date": today, "instances": {}}
         data = json.loads(path.read_text(encoding="utf-8"))
+        legacy = any(key in data for key in ("done", "skipped", "attempts"))
+        dirty = legacy
+        if legacy:
+            # 折叠旧扁平键；若文件已同时有 instances，保留其它实例，只覆盖 default
+            instances = data.get("instances") or {}
+            instances["default"] = {
+                "done": data.pop("done", []),
+                "skipped": data.pop("skipped", []),
+                "attempts": data.pop("attempts", {}),
+            }
+            data = {"date": data.get("date", today), "instances": instances}
         if data.get("date") != today:
             self.append_journal(f"跨天：{data.get('date')} -> {today}，重置当日进度")
-            data = {"date": today, "done": [], "skipped": [], "attempts": {}}
+            data = {"date": today, "instances": {}}
+            dirty = True
+        if "instances" not in data:
+            data["instances"] = {}
+            dirty = True
+        if dirty:
             self._write_json(path, data)
         return data
 
-    def update_state(self, patch: dict) -> dict:
-        merged = _deep_merge(self.state(), patch)
-        self._write_json(self.root / "state.json", merged)
-        return merged
+    @staticmethod
+    def _instance_state(data: dict, instance: str) -> dict:
+        return data.setdefault("instances", {}).setdefault(
+            instance, {"done": [], "skipped": [], "attempts": {}}
+        )
 
     # ------------------------------------------------------------- journal
     def append_journal(self, text: str) -> str:

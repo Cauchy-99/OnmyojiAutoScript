@@ -46,16 +46,42 @@ def test_state_patch_merges_and_persists(tmp_path):
     assert on_disk["attempts"] == {"Orochi": 1}
 
 
+def test_state_is_partitioned_per_instance(tmp_path):
+    memory = _memory(tmp_path)
+    memory.update_state({"done": ["Exploration"]}, instance="oas1")
+    memory.update_state({"done": ["Orochi"]}, instance="oas2")
+
+    assert memory.state("oas1")["done"] == ["Exploration"]
+    assert memory.state("oas2")["done"] == ["Orochi"]
+    document = memory.state()
+    assert set(document["instances"]) == {"oas1", "oas2"}
+
+
+def test_legacy_flat_state_is_migrated(tmp_path):
+    (tmp_path / "state.json").write_text(
+        json.dumps({"date": "2026-10-23", "done": ["Restart"], "skipped": [], "attempts": {"Orochi": 1}}),
+        encoding="utf-8",
+    )
+    memory = _memory(tmp_path)
+
+    assert memory.state("default")["done"] == ["Restart"]
+    assert memory.state("default")["attempts"] == {"Orochi": 1}
+    on_disk = json.loads((tmp_path / "state.json").read_text(encoding="utf-8"))
+    assert "done" not in on_disk
+    assert on_disk["instances"]["default"]["done"] == ["Restart"]
+
+
 def test_state_rolls_over_on_a_new_day(tmp_path):
     day_one = AgentMemory(root=tmp_path, now=lambda: datetime(2026, 10, 23, 18, 0, 0))
-    day_one.update_state({"done": ["Exploration"], "attempts": {"Orochi": 2}})
+    day_one.update_state({"done": ["Exploration"], "attempts": {"Orochi": 2}}, instance="oas1")
 
     day_two = AgentMemory(root=tmp_path, now=lambda: datetime(2026, 10, 24, 7, 0, 0))
     fresh = day_two.state()
 
     assert fresh["date"] == "2026-10-24"
-    assert fresh["done"] == []
-    assert fresh["attempts"] == {}
+    assert fresh["instances"] == {}
+    assert day_two.state("oas1")["done"] == []
+    assert day_two.state("oas1")["attempts"] == {}
     journal = (tmp_path / "journal" / "2026-10-24.md").read_text(encoding="utf-8")
     assert "跨天" in journal
 

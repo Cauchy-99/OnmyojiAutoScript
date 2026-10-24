@@ -55,6 +55,7 @@ class HoldBody(BaseModel):
 
 class StateBody(BaseModel):
     patch: dict
+    instance: str | None = None
 
 
 class JournalBody(BaseModel):
@@ -108,8 +109,8 @@ def create_agent_router(service: AgentService) -> APIRouter:
 
     @router.get("/briefing")
     @_handle
-    def briefing():
-        return service.briefing()
+    def briefing(instance: str | None = None):
+        return service.briefing(instance)
 
     @router.get("/instances")
     @_handle
@@ -225,7 +226,7 @@ def create_agent_router(service: AgentService) -> APIRouter:
     @router.post("/daily_state")
     @_handle
     def daily_state(body: StateBody):
-        return service.update_daily_state(body.patch)
+        return service.update_daily_state(body.patch, body.instance)
 
     @router.post("/journal")
     @_handle

@@ -91,9 +91,9 @@ def create_mcp(service: AgentService) -> FastMCP:
     )
 
     @mcp.tool()
-    def get_briefing() -> str:
-        """一次性拿到：实例列表、hold 状态、daily_plan、今日 state、playbook 摘要。"""
-        return _dump(service.briefing())
+    def get_briefing(instance: str | None = None) -> str:
+        """一次性拿到：实例列表、hold 状态、daily_plan、今日 state、playbook 摘要。传 instance 时 state 只含该实例的当日进度。"""
+        return _dump(service.briefing(instance))
 
     @mcp.tool()
     def list_instances() -> str:
@@ -199,9 +199,9 @@ def create_mcp(service: AgentService) -> FastMCP:
         return _dump(await service.emergency_stop(minutes=minutes))
 
     @mcp.tool()
-    def update_daily_state(patch: dict) -> str:
-        """合并写入 data/agent/state.json，记录今天做了什么、跳过了什么。"""
-        return _dump(service.update_daily_state(patch))
+    def update_daily_state(patch: dict, instance: str | None = None) -> str:
+        """把 patch 合并进该实例在 data/agent/state.json 的 bucket，记录今天做了什么、跳过了什么。"""
+        return _dump(service.update_daily_state(patch, instance))
 
     @mcp.tool()
     def log_decision(text: str) -> str:
