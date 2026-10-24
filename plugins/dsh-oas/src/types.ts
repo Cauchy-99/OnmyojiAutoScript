@@ -9,6 +9,8 @@ export interface PluginConfig {
   baseUrl: string;
   instances: string[];
   tickSeconds: number;
+  stateDir?: string;
+  enable?: boolean;
 }
 
 export type JsonSchema = Record<string, unknown>;
